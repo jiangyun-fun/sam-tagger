@@ -60,7 +60,33 @@ Eight staged commits (one per phase):
   TC=OnTarget / EE counts; `error-stats` wrote all 7 Parquet files; `pileup`
   emitted per-position rows.
 
-# Embedding into snakeforge-templates (next step, not done here)
+# Differential validation vs bam_tagger 2.0.6 (ground truth)
+
+`scripts/diff_test.py` generates a multi-amplicon reference, simulates reads
+(both strands, SNPs/indels, varied qualities, unmapped), aligns with
+`minimap2 -ax sr --cs` (so the BAM carries **real** cs tags), runs **both**
+tools with identical per-ref params (CSV for Rust, equivalent TOML for Python),
+and compares every shared output surface. Run over **5 independent seeds**:
+
+| surface                        | result                                   |
+|--------------------------------|------------------------------------------|
+| BAM tags (FL/MS/ME/TC/AP/SS/ES/DM/EE/IL/DL/NB) | identical, 0 diffs (~890 reads × 12 tags/seed) |
+| tag stats (FL/TC/AP/NB Parquet) | identical                                |
+| error stats (7 Parquet)         | identical (incl. 1280-row positional)    |
+| pileup (Parquet)                | identical (~2100 rows/seed)              |
+| FASTQ.gz (subreads, L/R softclip) | byte-identical                         |
+
+**Total diffs across all 5 seeds: 0.** sam-tagger is value-equivalent to
+bam_tagger 2.0.6 on the entire shared surface.
+
+One **intentional** divergence surfaced and is an improvement, not a regression:
+bam_tagger 2.0.6 *rejects* cs tags that don't start with a match op (`:`) and
+exits 1 (8–10 reads/seed). sam-tagger accepts them (cs validation was removed in
+the port — commit `846aa80`), so it processes the full BAM bam_tagger crashes on.
+The comparison runs both tools on the Rust-compatible subset for fairness; the
+harness separately confirms sam-tagger exits 0 on the full 900-record input.
+
+
 
 `sam-tagger` fits the existing pattern (`cs_tagger`, `sam_formatter` kits) and
 runs after `cs-tagger` (`minimap2 → cs-tagger → sam-tagger`). The follow-up is a
