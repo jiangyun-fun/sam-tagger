@@ -19,6 +19,7 @@ from __future__ import annotations
 import gzip
 from contextlib import ExitStack, closing
 from pathlib import Path
+from typing import Protocol
 
 import pysam
 from loguru import logger
@@ -71,6 +72,58 @@ def _header_refs(reader: pysam.AlignmentFile) -> list[tuple[str, int]]:
         name = reader.get_reference_name(tid)
         out.append((name, reader.get_reference_length(name)))
     return out
+
+
+class _HasCsTag(Protocol):
+    """Structural type for the cs-tag check — accepts pysam records and test fakes."""
+
+    def has_tag(self, tag: str) -> bool: ...
+
+
+class _CsWatch:
+    """Counts mapped reads lacking a ``cs`` tag; warns early + summarizes.
+
+    ``needs_cs`` gates the whole thing (``False`` -> ``observe``/``summarize`` are
+    no-ops), so a run that only uses CIGAR-based features (FL) stays silent.
+    Warn-only — never aborts (FL still works without cs).
+    """
+
+    _EARLY_THRESHOLD = 1000
+    _EARLY_FRAC = 0.5
+
+    def __init__(self, *, needs_cs: bool) -> None:
+        self._needs = needs_cs
+        self._scanned = 0
+        self._missing = 0
+        self._warned = False
+
+    def observe(self, record: _HasCsTag) -> None:
+        """Call once per mapped record, before any cs-based work."""
+        if not self._needs:
+            return
+        self._scanned += 1
+        if not record.has_tag("cs"):
+            self._missing += 1
+        if (
+            not self._warned
+            and self._scanned >= self._EARLY_THRESHOLD
+            and self._missing / self._scanned > self._EARLY_FRAC
+        ):
+            logger.warning(
+                "{} of the first {} mapped reads lack a 'cs' tag — TC/EE/AP/error/pileup "
+                "will be empty for them. Did you run cs-tagger (minimap2 --cs)?",
+                self._missing,
+                self._scanned,
+            )
+            self._warned = True
+
+    def summarize(self) -> None:
+        """Call after the read loop."""
+        if self._needs and self._missing > 0:
+            logger.warning(
+                "{} mapped read(s) lacked a 'cs' tag and were skipped for cs-based features.",
+                self._missing,
+            )
 
 
 # ===========================================================================
@@ -170,6 +223,8 @@ def _annotate_loop(
     stats: StatsCollector,
 ) -> None:
     fl_active = args.add_fl is not None or args.fl_stats is not None
+    # cs is only needed for TC/EE (AP uses the read seq; FL/NB don't need cs).
+    watch = _CsWatch(needs_cs=any([args.add_tc, args.tc_stats, args.add_ee]))
     record_count = 0
 
     logger.info("Processing BAM records...")
@@ -181,6 +236,8 @@ def _annotate_loop(
         if record.is_unmapped:
             bam_writer.write(record)
             continue
+
+        watch.observe(record)
 
         qname = record.query_name or ""
         ref_name = bam_reader.get_reference_name(record.reference_id)
@@ -306,6 +363,7 @@ def _annotate_loop(
         bam_writer.write(record)
 
     logger.info("Processed {} records.", record_count)
+    watch.summarize()
 
 
 # ===========================================================================
@@ -327,11 +385,13 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
         collector = ErrorStatsCollector(cfg.error, paths)
 
         logger.info("Processing BAM records for error statistics...")
+        watch = _CsWatch(needs_cs=True)
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
             record_count += 1
             if record.is_unmapped:
                 continue
+            watch.observe(record)
             if not record.has_tag("cs"):
                 continue
             parsed = parse_cs_tag(str(record.get_tag("cs")))
@@ -341,6 +401,7 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
             )
 
         logger.info("Processed {} records.", record_count)
+        watch.summarize()
         collector.write_results()
     finally:
         bam_reader.close()
@@ -380,11 +441,13 @@ def run_pileup(args: PileupArgs) -> None:
         )
 
         logger.info("Processing BAM records for pileup statistics...")
+        watch = _CsWatch(needs_cs=True)
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
             record_count += 1
             if record.is_unmapped:
                 continue
+            watch.observe(record)
             cigar = record.cigartuples
             if cigar is None or not record.has_tag("cs"):
                 continue
@@ -402,6 +465,7 @@ def run_pileup(args: PileupArgs) -> None:
             )
 
         logger.info("Processed {} records.", record_count)
+        watch.summarize()
         collector.write_results(args.output)
     finally:
         bam_reader.close()
@@ -433,11 +497,13 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
         qc = QcSummaryCollector(ref_names)
 
         logger.info("Processing BAM records for QC summary...")
+        watch = _CsWatch(needs_cs=(cfg.tc is not None or cfg.error is not None))
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
             if record.is_unmapped:
                 continue
             record_count += 1
+            watch.observe(record)
             ref_name = bam_reader.get_reference_name(record.reference_id)
             cigar = record.cigartuples or []
             qc.tally_total(ref_name)
@@ -473,6 +539,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
                         qc.tally_ap(ref_name, status)
 
         logger.info("Processed {} records.", record_count)
+        watch.summarize()
         qc.write_results(args.output, error_collector)
     finally:
         bam_reader.close()
