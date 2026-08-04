@@ -48,9 +48,12 @@ minimap2 → cs-tagger → sam-tagger
 ## Development
 
 ```bash
-pixi run test       # pytest
-pixi run lint       # ruff
-pixi run typecheck  # pyright
+pixi run -e dev test       # pytest
+pixi run -e dev lint       # ruff
+pixi run -e dev typecheck  # pyright
 ```
+
+`pytest`, `ruff`, and `pyright` live in the `dev` environment, so dev tasks take
+`-e dev`.
 
 > `pysam` is provided via conda (reliable htslib build), not PyPI.
