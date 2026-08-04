@@ -60,7 +60,41 @@ Eight staged commits (one per phase):
   TC=OnTarget / EE counts; `error-stats` wrote all 7 Parquet files; `pileup`
   emitted per-position rows.
 
-# Differential validation vs bam_tagger 2.0.6 (ground truth)
+# Performance vs bam_tagger 2.0.6
+
+`scripts/bench.py`, single-threaded, default verbosity, min of 3 runs, on a
+120k-read amplicon BAM (2.6 MB, minimap2 `--cs` aligned, 4 references).
+
+| workload | bam_tagger (Rust) | sam-tagger (Python) | py/rust |
+|---|---|---|---|
+| A. annotate (1 pass: 12 tags + 3 FASTQ + 4 tag-stats) | 0.94 s (127 kreads/s) | 4.62 s (26 kreads/s) | **4.9×** |
+| B. full pipeline (tags + error-stats + pileup) | 2.86 s (42 kreads/s) | 28.19 s (4.3 kreads/s) | **9.9×** |
+
+sam-tagger workload-B breakdown (3 subcommands = 3 BAM passes):
+
+| subcommand | wall | notes |
+|---|---|---|
+| annotate | 4.62 s | writes BAM + FASTQ + tag-stats |
+| error-stats | 0.90 s | 7 Parquet |
+| pileup | 22.67 s | **the bottleneck** |
+| total | 28.19 s | |
+
+Peak RSS: ~90 MB (Python) vs ~17 MB (Rust).
+
+**Interpretation.** On the core tagging loop (workload A) sam-tagger is ~5×
+slower — the expected pysam/Python-vs-Rust cost, and fast in absolute terms
+(26 kreads/s; a 1M-read run ≈ 40 s). error-stats is cheap (cs parse + tallies,
+no per-base work). **pileup is the outlier**: ~5× the annotate loop alone.
+
+**Root cause (confirmed).** `PileupStatsCollector.tally_from_record` calls
+`faidx.fetch()` **per base** in the match (`:`) branch. A controlled run on the
+same BAM: pileup with `--fasta` = 21.96 s vs without = 8.06 s — the per-base
+fetch is ~64% of pileup time. The remaining ~8 s is the base-by-base Python
+loop itself. The fix (out of scope here): fetch the reference span **once per
+read** and index it in memory — expected to cut pileup to ~8–10 s (~3× speedup)
+and the full pipeline to ~14 s (~5× Rust instead of ~10×).
+
+
 
 `scripts/diff_test.py` generates a multi-amplicon reference, simulates reads
 (both strands, SNPs/indels, varied qualities, unmapped), aligns with
