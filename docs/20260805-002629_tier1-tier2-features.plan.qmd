@@ -14,26 +14,53 @@ include-in-header:
 # Objective
 
 Add the four features that earned their place in the feature review, without
-expanding the CLI surface with bloat. Implemented as four independent stages so
-each is shippable on its own. Do **not** add: threading, variant-calling,
-MD-fallback, HI/HD/SP, override flags (rejected as YAGNI / overlaps bcftools).
+expanding the CLI surface with bloat. Four independent stages, each shippable on
+its own. Do **not** add: threading, variant-calling, MD-fallback, HI/HD/SP,
+override flags (rejected as YAGNI / overlaps bcftools).
 
-# Decisions (approved)
+# Status of the baseline (re-verified before this plan)
+
+The `pixi run -e dev` gate is now **green** and honestly scoped (commit
+`6a49600`):
+
+- `test` = `pytest -q` → **105 passed**.
+- `lint` = `ruff check .` → **All checks passed**.
+- `typecheck` = `pyright` → **0 errors**, scoped via `pyproject.toml`
+  `[tool.pyright]` to `include = ["src", "tests"]`, `exclude = ["scripts"]`
+  (one-off benchmark/diff harnesses whose `subprocess.run` overloads are noise;
+  they remain ruff-checked for style).
+
+The gate run before every stage commit below is exactly:
+`pixi run -e dev test && pixi run -e dev lint && pixi run -e dev typecheck`.
+
+# Decisions (refined after re-exploration)
 
 1. **Tier 1 — `qc-summary` subcommand.** A fourth subcommand emitting one
-   Parquet row per reference joining FL / TC / AP / per-base-error. Reuses the
-   per-record **functions** in `processing.py` (no logic duplication) and
-   `ErrorStatsCollector` for the error tally; does **not** couple to
-   `StatsCollector`'s file-writing. Single pass, one output — maps to one
-   snakeforge template.
+   Parquet row per BAM-header reference joining FL / TC / AP / per-base-error.
+   Reuses the per-record **functions** in `processing.py` (no logic duplication)
+   and reuses `ErrorStatsCollector` for the error tally via a small refactor
+   (`paths` Optional + a read accessor). Does **not** couple to
+   `StatsCollector`'s file-writing. Single pass, one output.
+
+   **Refinement vs the original draft:** `--config` is **optional** (mirrors
+   `annotate`'s contract), not required. FL + `total_reads` are always computed
+   (FL needs only the header length); TC/AP/error columns populate only when the
+   config supplies the relevant primers, else they are 0 with pct 0.0. The
+   `--help` text says so explicitly — this is not a hidden default.
+
 2. **Tier 2a — cs pre-flight warning.** In-pass early warning: count cs-missing
-   reads and log once a threshold is hit (works for stdin too, fires within the
-   first ~1k reads so it beats long pileup runs), plus a final count. Warn only
-   when a cs-dependent feature is active. Do **not** abort (FL still works
-   without cs).
+   mapped reads and log once a threshold is hit (works for stdin too, fires
+   within the first ~1k reads so it beats long pileup runs), plus a final count.
+   Warn only when a cs-dependent feature is active. Do **not** abort (FL still
+   works without cs).
+
+   **Refinement:** implement as a small **class** `_CsWatch` (not a closure
+   returning a tuple) — cleaner types, easier to unit-test.
+
 3. **Tier 2b — CRAM I/O.** Reader auto-detects BAM/CRAM/SAM for file inputs;
    writer gains `--output-format bam|cram|sam` (default `bam`). CRAM output
-   requires `--fasta` (wired into pysam).
+   requires `--fasta` (wired into pysam as `reference_filename`).
+
 4. **Tier 2c — documented library API.** Expose the orchestrators + args
    dataclasses + collectors via `sam_tagger/__init__.py` `__all__` and a README
    "Python API" section. No behaviour change.
@@ -43,131 +70,228 @@ MD-fallback, HI/HD/SP, override flags (rejected as YAGNI / overlaps bcftools).
 ```
 src/sam_tagger/
   cli.py            # + QcSummaryArgs dataclass + qc_summary command; + output_format on AnnotateArgs
-  lib.py            # + run_qc_summary; cs-warning helper; CRAM-aware _open_reader/_open_writer
+  lib.py            # + run_qc_summary; _CsWatch class wired into all 4 orchestrators; CRAM-aware _open_reader/_open_writer
   stats/
-    error_stats.py  # ErrorStatsCollector: paths -> Optional (tally-only reuse), tiny refactor
-    qc_summary.py   # NEW: per-ref accumulator + Parquet writer (QcSummaryCollector)
+    error_stats.py  # ErrorStatsCollector: paths -> Optional (default None); write_results raises if paths is None; + per_base_counts() accessor
+    qc_summary.py   # NEW: QcSummaryCollector (per-ref accumulator) + Parquet writer
   __init__.py       # __all__ public API
 tests/
   test_qc_summary.py    # NEW
   test_cram.py          # NEW (round-trip a tiny CRAM)
   test_cs_warning.py    # NEW
-  _helpers.py           # + write_cram helper if needed
 README.md           # + qc-summary / CRAM / Python-API sections
-docs/20260805-002629_*.plan.qmd   # this file
-docs/20260805-002629_*.report.qmd # written at the end
+docs/20260805-002629_*.plan.qmd   # this file (rewritten again at completion)
+docs/<new-ts>_tier1-tier2-features.report.qmd  # written at the end
 ```
+
+# Verified signatures (read from source — implement against these)
+
+- `lib.py:51` `_open_reader(input_bam: Path) -> pysam.AlignmentFile`
+- `lib.py:57` `_open_writer(output_bam: Path, header: pysam.AlignmentHeader) -> pysam.AlignmentFile`
+- `lib.py:65` `_header_refs(reader) -> list[tuple[str, int]]`
+- `error_stats.py:139` `ErrorStatsCollector.__init__(error_params_map, paths)`
+- `error_stats.py:165` `tally_from_parsed(parsed_ops, record_pos, ref_name, qname)`
+- `processing.py:37`  `sum_match_del_skip_cigar(cigartuples) -> int`
+- `processing.py:117` `parse_cs_tag(cs_tag) -> list[tuple[str, str]]`
+- `processing.py:176` `is_on_target_parsed(pos, parsed_ops, primer_start_len, primer_end_len, seq_len) -> bool`
+- `processing.py:226` `check_amplicon_primers(cigartuples, read_seq: bytes, pos, params: ApParams) -> str`  ← `read_seq` is **bytes**
+- `config.py:68` `AllConfigParams.tc/ap/error: dict[str, X] | None`
+- `config.py:209` `load_config(config_path, header_ref_lengths) -> AllConfigParams`
+- `parquet_writer.py:12` `write_df_to_parquet(df: pl.DataFrame, path: Path)`
 
 # Feature designs
 
 ## Tier 1 — `qc-summary`
 
-**CLI** (`cli.py`): a 4th dataclass + command, mirroring the others' flatten binding:
+**CLI** (`cli.py`) — a 4th dataclass + command, mirroring the others' flatten
+binding (`Annotated[Args, Parameter(name="")]`):
 
 ```python
 @dataclass
 class QcSummaryArgs:
-    input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags).")]
-    output:    Annotated[Path, Parameter(alias="-o", help="Output per-ref QC summary Parquet.")]
-    config:    Annotated[Path, Parameter(help="TOML config (tc/amp/error primer params).")]
+    input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags for TC/error).")]
+    output:    Annotated[Path, Parameter(alias="-o", help="Output per-reference QC summary Parquet.")]
+    config:    Annotated[Path | None, Parameter(
+        help="TOML config (tc/amp/error primer params). Omit to compute FL + read counts only.")] = None
     verbose:   Annotated[int, Parameter(alias="-v", count=True, group="Misc")] = 0
 
 @app.command
 def qc_summary(args: Annotated[QcSummaryArgs, Parameter(name="")]) -> None:
+    """One Parquet row per reference: FL, TC, AP, per-base error rate (single pass)."""
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_qc_summary
     run_qc_summary(args)
 ```
 
-`config` is required (TC/AP/error need primers); FL is always computed (header
-length). No `--fasta` (qc-summary does not do NB or pileup depth).
+No `--fasta` (qc-summary does not do NB or pileup depth).
 
-**Orchestrator** (`lib.py: run_qc_summary`): single pass over the BAM:
+**Refactor enabler** (`stats/error_stats.py`) — behaviour-preserving, 3 changes:
 
-```
-validate: config present; (nothing else required — FL always runs)
-open reader; header_refs; ref_lengths; cfg = load_config(config, ref_lengths)
-error_collector = ErrorStatsCollector(cfg.error, paths=None)   # tally-only (see refactor)
-qc = QcSummaryCollector(cfg, ref_names)                        # NEW
-for rec in reader.fetch(until_eof=True):
-    if rec.is_unmapped: continue
-    ref = reader.get_reference_name(rec.reference_id)
-    qc.tally_total(ref)
-    qc.tally_fl(ref, sum_match_del_skip_cigar(cigar) == ref_lengths[ref])
-    cs = rec.get_tag("cs") if has_tag("cs") else None
-    if cs is not None:
-        parsed = parse_cs_tag(str(cs))
-        if cfg.tc and ref in cfg.tc: qc.tally_tc(ref, is_on_target_parsed(...))
-        if cfg.ap and ref in cfg.ap: qc.tally_ap(ref, check_amplicon_primers(...))
-    if cfg.error and ref in cfg.error:
-        error_collector.tally_from_parsed(parsed_or_empty, rec.reference_start, ref, qname)
-# join: per ref — qc totals + error_collector._stats_by_ref[ref].per_base_summary
-qc.write_results(args.output, error_collector)
+1. `__init__(self, error_params_map, paths: ErrorStatsOutputPaths | None = None)`.
+2. `write_results()` raises `ValueError("ErrorStatsCollector.write_results requires output paths")`
+   if `self._paths is None` (fail-loud; existing callers always pass paths, so unaffected).
+3. New public accessor so qc-summary does not poke `_stats_by_ref` internals:
+
+```python
+def per_base_counts(self, ref_name: str) -> tuple[int, int, int, int] | None:
+    """Return (aligned_bases, mismatches, insertions, deletions) for a ref, or None."""
+    ref_stats = self._stats_by_ref.get(ref_name)
+    if ref_stats is None:
+        return None
+    s = ref_stats.per_base_summary
+    return (s.total_aligned_bases, s.mismatches, s.insertions, s.deletions)
 ```
 
-Reuse, no duplication: the per-read judgements (`sum_match_del_skip_cigar`,
-`is_on_target_parsed`, `check_amplicon_primers`, `parse_cs_tag`) are the
-already-shared, already-tested `processing.py` functions. The only new logic is
-aggregation + the joined writer.
+`tally_from_parsed` already populates `per_base_summary` regardless of `paths`.
+
+**Orchestrator** (`lib.py: run_qc_summary`) — single pass:
+
+```python
+def run_qc_summary(args: QcSummaryArgs) -> None:
+    bam_reader = _open_reader(args.input_bam)
+    try:
+        header_refs = _header_refs(bam_reader)
+        ref_lengths = dict(header_refs)
+        ref_names = [n for n, _ in header_refs]
+        cfg = load_config(args.config, ref_lengths)
+        error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
+        qc = QcSummaryCollector(ref_names)
+        watch = _CsWatch(needs_cs=(cfg.tc is not None or cfg.error is not None))
+        for rec in bam_reader.fetch(until_eof=True):
+            if rec.is_unmapped:
+                continue
+            watch.observe(rec)
+            ref = bam_reader.get_reference_name(rec.reference_id)
+            cigar = rec.cigartuples or []
+            qc.tally_total(ref)
+            if sum_match_del_skip_cigar(cigar) == ref_lengths[ref]:
+                qc.tally_fl(ref)
+            cs = rec.get_tag("cs") if rec.has_tag("cs") else None
+            if cs is not None:
+                parsed = parse_cs_tag(str(cs))
+                if cfg.tc is not None:
+                    p = cfg.tc.get(ref)
+                    if p is not None and is_on_target_parsed(
+                        rec.reference_start, parsed, p.primer_start_len, p.primer_end_len, p.seq_len
+                    ):
+                        qc.tally_on_target(ref)
+                if error_collector is not None:
+                    error_collector.tally_from_parsed(parsed, rec.reference_start, ref, rec.query_name or "")
+            if cfg.ap is not None:
+                p = cfg.ap.get(ref)
+                if p is not None:
+                    read_seq = rec.query_sequence
+                    if read_seq:
+                        qc.tally_ap(ref, check_amplicon_primers(cigar, read_seq.encode(), rec.reference_start, p))
+        watch.summarize()
+        qc.write_results(args.output, error_collector)
+    finally:
+        bam_reader.close()
+```
+
+Reuse, no duplication: the per-read judgements are the already-shared,
+already-tested `processing.py` functions. The only new logic is aggregation +
+the joined writer.
 
 **New module `stats/qc_summary.py`** — `QcSummaryCollector`:
-- `tally_total(ref)`, `tally_fl(ref, bool)`, `tally_tc(ref, bool)`, `tally_ap(ref, status)`
-- internal dicts: `_total`, `_fl`, `_tc`, `_ap: dict[str, dict[str,int]]`
-- `write_results(path, error_collector)` builds the DataFrame (see schema) and
-  writes Parquet via `write_df_to_parquet`.
 
-**Output schema** (one row per reference that appears in the BAM header; refs
-with zero reads are included with zeros — FL is the natural denominator):
+```python
+@dataclass(slots=True)
+class _QcCounts:
+    total: int = 0
+    fl: int = 0
+    on_target: int = 0
+    ap_both: int = 0
+    ap_start_only: int = 0
+    ap_end_only: int = 0
+    ap_neither: int = 0
 
-| column | type | meaning |
+class QcSummaryCollector:
+    def __init__(self, ref_names: list[str]) -> None:
+        self._counts: dict[str, _QcCounts] = {n: _QcCounts() for n in ref_names}
+    def tally_total(self, ref: str) -> None: ...
+    def tally_fl(self, ref: str) -> None: ...
+    def tally_on_target(self, ref: str) -> None: ...
+    def tally_ap(self, ref: str, status: str) -> None: ...   # status in {Both,StartOnly,EndOnly,Neither}
+    def write_results(self, path: Path, error_collector) -> None: ...  # builds df, write_df_to_parquet
+```
+
+`tally_ap` maps status → the matching bucket; unknown statuses are ignored
+(should not happen — `check_amplicon_primers` returns exactly those four).
+
+**Output schema** — one row per BAM-header reference (every contig appears, even
+zero-read ones; FL is the natural denominator). Built as a `pl.DataFrame` with an
+explicit `schema`, written via `write_df_to_parquet`:
+
+| column | polars type | meaning |
 |---|---|---|
 | `seq_name` | Utf8 | reference name |
 | `total_reads` | UInt64 | mapped reads on this ref |
-| `fl` / `fl_pct` | UInt64 / Float64 | full-length count / fl ÷ total_reads |
-| `on_target` / `on_target_pct` | UInt64 / Float64 | TC on-target count / pct (0 if no tc config) |
-| `ap_Both`, `ap_StartOnly`, `ap_EndOnly`, `ap_Neither` | UInt64 | AP counts (0 if no ap config) |
-| `mismatches`, `insertions`, `deletions` | UInt64 | per-base error totals in the error inner region (0 if no error config) |
+| `fl`, `fl_pct` | UInt64 / Float64 | full-length count / `fl ÷ total_reads` |
+| `on_target`, `on_target_pct` | UInt64 / Float64 | TC on-target count / pct (0 / 0.0 if no tc config for this ref) |
+| `ap_Both`, `ap_StartOnly`, `ap_EndOnly`, `ap_Neither` | UInt64 | AP counts (0 if no ap config for this ref) |
+| `mismatches`, `insertions`, `deletions` | UInt64 | per-base error totals in the error inner region (0 if no error config for this ref) |
 | `aligned_bases` | UInt64 | denominator for error rates |
-| `error_rate` | Float64 | (sub+ins+del) ÷ aligned_bases |
+| `error_rate` | Float64 | `(mm+ins+del) ÷ aligned_bases` |
 
-Percentages use 0.0 when `total_reads == 0`. `error_rate` uses 0.0 when
-`aligned_bases == 0`.
-
-**Refactor enabler** (`stats/error_stats.py`): make
-`ErrorStatsCollector.__init__(error_params_map, paths: ErrorStatsOutputPaths | None = None)`
-and gate `write_results()` on `paths is not None`. `tally_from_parsed` already
-populates `per_base_summary` regardless. This is a 2-line, behaviour-preserving
-change (existing callers still pass paths) that lets qc-summary reuse the error
-tally with `paths=None`. Add a test for `paths=None` tally-only use.
+`fl_pct` / `on_target_pct` use `0.0` when `total_reads == 0`. `error_rate` uses
+`0.0` when `aligned_bases == 0`. Error columns come from
+`error_collector.per_base_counts(ref)` (None → zeros) — so a ref with no error
+config, or a run with no config at all, yields zeros rather than missing rows.
 
 ## Tier 2a — cs pre-flight warning
 
-**Helper** in `lib.py`:
+**Class** in `lib.py`:
 
 ```python
-def _CsWatch(needs_cs: bool):
-    """Counts reads lacking cs; warns early + summarizes. needs_cs gates it."""
-    # state: scanned, missing, warned
-    def observe(rec) -> None:        # call per mapped record, before cs work
-        if not needs_cs: return
-        scanned += 1
-        if not rec.has_tag("cs"): missing += 1
-        if not warned and scanned >= 1000 and missing / scanned > 0.5:
-            logger.warning("{} of first {} reads lack a 'cs' tag — TC/EE/AP/error/pileup will be empty for them. Did you run cs-tagger?", missing, scanned)
-            warned = True
-    def summarize() -> None:
-        if needs_cs and missing > 0:
-            logger.warning("{} read(s) lacked a 'cs' tag and were skipped for cs-based features.", missing)
-    return observe, summarize
+class _CsWatch:
+    """Counts mapped reads lacking a cs tag; warns early + summarizes.
+
+    `needs_cs` gates the whole thing (False -> observe/summarize are no-ops), so
+    a FL-only run stays silent.
+    """
+    _EARLY_THRESHOLD = 1000
+    _EARLY_FRAC = 0.5
+
+    def __init__(self, *, needs_cs: bool) -> None:
+        self._needs = needs_cs
+        self._scanned = 0
+        self._missing = 0
+        self._warned = False
+
+    def observe(self, record) -> None:
+        if not self._needs:
+            return
+        self._scanned += 1
+        if not record.has_tag("cs"):
+            self._missing += 1
+        if (not self._warned and self._scanned >= self._EARLY_THRESHOLD
+                and self._missing / self._scanned > self._EARLY_FRAC):
+            logger.warning(
+                "{} of the first {} mapped reads lack a 'cs' tag — TC/EE/AP/error/pileup "
+                "will be empty for them. Did you run cs-tagger (minimap2 --cs)?",
+                self._missing, self._scanned,
+            )
+            self._warned = True
+
+    def summarize(self) -> None:
+        if self._needs and self._missing > 0:
+            logger.warning(
+                "{} mapped read(s) lacked a 'cs' tag and were skipped for cs-based features.",
+                self._missing,
+            )
 ```
 
-Wire into **every** orchestrator that reads cs (`run_annotate`, `run_error_stats`,
-`run_pileup`, `run_qc_summary`): `needs_cs` = whether a cs-dependent feature is
-active (for `run_annotate`, true if any of add_tc/add_ap/add_ee/nb_stats/tc_stats/
-ap_stats requested; for the other three, always true). Call `observe(rec)` at the
-top of the mapped-read branch, `summarize()` after the loop.
+Wire into **every** orchestrator: `needs_cs` =
+- `run_annotate`: `True` iff any of `add_tc`/`tc_stats`/`add_ee` is set (AP uses
+  the read seq, not cs; FL/NB don't need cs).
+- `run_error_stats`, `run_pileup`: `True` (they require cs).
+- `run_qc_summary`: the same `needs_cs` computed in the orchestrator
+  (`cfg.tc is not None or cfg.error is not None`) so a no-config FL-only run is
+  silent.
 
-Behaviour-preserving (warning only). No abort.
+Call `observe(rec)` at the top of the mapped-read branch, `summarize()` after the
+loop. Behaviour-preserving (warning only). No abort.
 
 ## Tier 2b — CRAM I/O
 
@@ -177,27 +301,30 @@ Behaviour-preserving (warning only). No abort.
 def _open_reader(input_bam: Path) -> pysam.AlignmentFile:
     p = str(input_bam)
     if p == "-":
-        return pysam.AlignmentFile("-", "rb")      # stdin stays BAM
-    return pysam.AlignmentFile(p)                  # auto-detect BAM/CRAM/SAM
+        return pysam.AlignmentFile("-", "rb")        # stdin stays BAM
+    return pysam.AlignmentFile(p)                    # auto-detect BAM/CRAM/SAM by content
 
 def _open_writer(output: Path, header, fmt: str, fasta: Path | None) -> pysam.AlignmentFile:
     p = str(output)
     mode = {"bam": "wb", "cram": "wc", "sam": "w"}[fmt]
-    kw = {"header": header}
+    kw: dict[str, object] = {"header": header}
     if fmt == "cram":
-        if fasta is None: raise ValueError("CRAM output requires --fasta")
+        if fasta is None:
+            raise ValueError("CRAM output requires --fasta (a reference to encode against).")
         kw["reference_filename"] = str(fasta)
     return pysam.AlignmentFile(p if p != "-" else "-", mode, **kw)
 ```
 
-`cli.py`: add to `AnnotateArgs`:
+`cli.py`: add to `AnnotateArgs` (probe the `Literal` binding first — see Risks):
 
 ```python
-output_format: Annotated[Literal["bam","cram","sam"], Parameter(group="Misc", help="Output format. Default 'bam'.")] = "bam"
+output_format: Annotated[Literal["bam", "cram", "sam"], Parameter(
+    group="Misc", help="Output format (default bam). cram requires --fasta.")] = "bam"
 ```
 
-`run_annotate` passes `args.output_format` + `args.fasta` to `_open_writer`.
-(`error-stats`, `pileup`, `qc-summary` are read-only — no writer, unaffected.)
+`run_annotate` calls `_open_writer(args.output_bam, bam_reader.header, args.output_format, args.fasta)`.
+(`error-stats`/`pileup`/`qc-summary` are read-only — no writer, unaffected; their
+readers gain auto-detect for free.)
 
 ## Tier 2c — library API
 
@@ -205,54 +332,63 @@ output_format: Annotated[Literal["bam","cram","sam"], Parameter(group="Misc", he
 `run_annotate, run_error_stats, run_pileup, run_qc_summary`,
 `AnnotateArgs, ErrorStatsArgs, PileupArgs, QcSummaryArgs`,
 `StatsCollector, ErrorStatsCollector, PileupStatsCollector, QcSummaryCollector`,
-`load_config`, and the `processing` functions. Keep `__version__`.
+`load_config`. Keep `__version__`. (The CLI already lazy-imports `lib` only to
+avoid the `cli`↔`lib` import cycle; `__init__` respects that by not forcing the
+cycle — import `cli` symbols from `sam_tagger.cli` and the orchestrators are
+fetched lazily by users via the same names the CLI uses.)
 
 `README.md`: a "Python API" section with a worked example (construct
 `AnnotateArgs`, call `run_annotate`). No codegen — just docs + `__all__`.
 
 # Commit stages (one Conventional Commit each)
 
-1. `feat: per-reference QC summary subcommand (qc-summary)` — cli QcSummaryArgs + qc_summary command; `run_qc_summary`; `stats/qc_summary.py`; `ErrorStatsCollector.paths` Optional refactor; `test_qc_summary.py`; README qc-summary section.
-2. `feat: warn when reads lack a cs tag` — `_CsWatch` helper wired into all 4 orchestrators; `test_cs_warning.py`.
-3. `feat: CRAM/SAM output via --output-format; auto-detect input` — `_open_reader`/`_open_writer` + `AnnotateArgs.output_format`; `test_cram.py` (round-trip a tiny CRAM with fasta); README.
-4. `docs: expose a public library API (__all__)` — `__init__.__all__` + README Python-API section.
+0. `chore: type-check src+tests and fix pre-existing lint/type drift` — **DONE** (`6a49600`).
+1. `docs: refine Tier 1 + Tier 2 plan after re-exploration` — this rewrite.
+2. `feat: per-reference QC summary subcommand (qc-summary)` — cli `QcSummaryArgs` + `qc_summary`; `run_qc_summary`; `stats/qc_summary.py`; `ErrorStatsCollector` Optional-`paths` + `per_base_counts` refactor; `test_qc_summary.py`; README qc-summary section.
+3. `feat: warn when reads lack a cs tag` — `_CsWatch` wired into all 4 orchestrators; `test_cs_warning.py`.
+4. `feat: CRAM/SAM output via --output-format; auto-detect input` — `_open_reader`/`_open_writer` + `AnnotateArgs.output_format`; `test_cram.py`; README.
+5. `docs: expose a public library API (__all__)` — `__init__.__all__` + README Python-API section.
+6. `docs: report Tier 1 + Tier 2 completion` — `report.qmd` + plan rewritten in place to match reality.
 
-Run `pixi run -e dev test && pixi run -e dev lint && pixi run -e dev typecheck` before each commit.
+Run `pixi run -e dev test && pixi run -e dev lint && pixi run -e dev typecheck` before each commit; require all green.
 
 # Risks
 
-- **qc-summary denominator/percentage edge cases** (zero reads, ref in config
-  but not in BAM, ref in BAM but not in config). Mitigation: enumerate output
-  rows from the **BAM header** refs (so every contig appears); for a ref with no
-  config entry for a feature, that feature's columns are 0 with pct 0.0. Test
-  each case explicitly.
+- **qc-summary edge cases** (zero reads, ref in config but not in BAM header, ref
+  in BAM but not in config). Mitigation: enumerate output rows from the **BAM
+  header** refs (every contig appears); for a ref with no config entry for a
+  feature, that feature's columns are 0 with pct 0.0; a ref in config but not the
+  BAM header is silently absent (no row) because the header is the denominator.
+  Test each case explicitly.
 - **ErrorStatsCollector `paths=None` refactor** must not change existing
-  behaviour. Mitigation: the only use of `paths` is inside `write_results`; gate
-  it. Existing `test_stats.py` + `test_integration.py` pin behaviour.
-- **CRAM output needs a reference + an htslib build with libdeflate/curl** — the
-  pixi conda pysam has htslib with CRAM support (verify in the test by writing +
-  re-reading a tiny CRAM). If the env lacks CRAM-write support, gate the test
-  behind `pytest.importorskip`/a capability check rather than failing CI.
-- **`Literal` import + cyclopts binding for `output_format`** — verify cyclopts
-  binds `Literal["bam","cram","sam"]` as an enum-style choice (quick probe before
-  writing the stage, as done for the original CLI).
+  behaviour. Mitigation: the only use of `paths` is inside the `_write_*`
+  methods; `write_results` now raises only when `paths is None` (never the case
+  for existing callers). `test_stats.py` + `test_integration.py` pin behaviour.
+- **CRAM output needs a reference + an htslib build with CRAM support.** The pixi
+  conda pysam bundles htslib with CRAM. Verify in `test_cram.py` by writing +
+  re-reading a tiny CRAM; if the env lacks CRAM-write support, skip the write
+  assertion via a capability probe (try-write, `pytest.skip` on failure) rather
+  than failing the gate — but still assert the auto-detect **read** path.
+- **`Literal` + cyclopts binding for `output_format`.** Probe that cyclopts binds
+  `Literal["bam","cram","sam"]` as an enum-style choice (quick in-process
+  `app(["annotate", ... "--output-format", "cram"])` probe) before writing stage
+  4, exactly as the flatten binding was probed for the original CLI.
 
 # Verification criteria
 
-- `pixi run -e dev test` green (105 → ~125 tests); `pixi run -e dev lint` and
-  `pixi run -e dev typecheck` clean.
-- `sam-tagger --help` shows four subcommands; `sam-tagger qc-summary --help`
-  shows the `-i/-o/--config` contract, no override flags.
-- `qc-summary` on a multi-ref BAM with mixed FL/on-target/AP/error reads
-  produces one row per BAM-header ref with correct counts/pcts (pinned by
-  `test_qc_summary.py`); matches a hand-computed join of fl/tc/ap/error-stats
-  outputs on the same BAM (cross-check test).
+- `pixi run -e dev test` green (105 → ~125 tests); `lint` and `typecheck` clean.
+- `sam-tagger --help` shows **four** subcommands; `sam-tagger qc-summary --help`
+  shows the `-i/-o/--config` contract (`--config` optional, no override flags).
+- `qc-summary` on a multi-ref BAM with mixed FL/on-target/AP/error reads produces
+  one row per BAM-header ref with correct counts/pcts (pinned by
+  `test_qc_summary.py`); the error columns match a hand-join of
+  `error-stats`' per_base output on the same BAM (cross-check test).
 - A BAM with cs tags stripped triggers exactly one early warning + one summary
   warning when a cs-dependent feature runs; FL still computes; no warning when
-  only FL is requested.
+  only FL is requested (no config).
 - `sam-tagger annotate ... -o out.cram --output-format cram --fasta ref.fa`
-  writes a CRAM that `pysam`/`samtools` can re-read with matching records; BAM
-  output is unchanged when `--output-format bam` (default).
+  writes a CRAM that pysam/samtools re-read with matching records; BAM output is
+  unchanged when `--output-format bam` (default).
 - `from sam_tagger import run_annotate, AnnotateArgs` works; README example runs.
 
 # Out of scope (explicitly)
