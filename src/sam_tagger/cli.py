@@ -39,9 +39,7 @@ def _configure_logging(verbose: int) -> None:
 
     level = {0: "WARNING", 1: "INFO", 2: "DEBUG"}.get(verbose, "TRACE")
     logger.remove()
-    logger.add(
-        sys.stderr, level=level, format="{time:HH:mm:ss} | {level:<7} | {message}"
-    )
+    logger.add(sys.stderr, level=level, format="{time:HH:mm:ss} | {level:<7} | {message}")
 
 
 # ===========================================================================
@@ -57,7 +55,9 @@ class AnnotateArgs:
     output_bam: Annotated[Path, Parameter(alias="-o", help="Output BAM. Use '-' for stdout.")]
     config: Annotated[
         Path | None,
-        Parameter(help="TOML config of per-ref primer/subread/NB params. Required for TC/AP/NB/subread."),
+        Parameter(
+            help="TOML config of per-ref primer/subread/NB params. Required for TC/AP/NB/subread."
+        ),
     ] = None
     fasta: Annotated[
         Path | None,
@@ -65,31 +65,84 @@ class AnnotateArgs:
     ] = None
 
     # --- Tags (value = the BAM tag name to write) ---
-    add_fl: Annotated[str | None, Parameter(group="Tags", help="Full-length: '1' if read spans whole reference.")] = None
-    add_ms: Annotated[str | None, Parameter(group="Tags", help="Match start (1-based read position).")] = None
-    add_me: Annotated[str | None, Parameter(group="Tags", help="Match end (1-based read position).")] = None
-    add_tc: Annotated[str | None, Parameter(group="Tags", help="On-target ('OnTarget') via cs tag, no errors in primer regions.")] = None
-    add_ap: Annotated[str | None, Parameter(group="Tags", help="Amplicon primer: 'Both'/'StartOnly'/'EndOnly'/'Neither'.")] = None
-    add_ss: Annotated[str | None, Parameter(group="Tags", help="Start (5') soft-clip length.")] = None
+    add_fl: Annotated[
+        str | None, Parameter(group="Tags", help="Full-length: '1' if read spans whole reference.")
+    ] = None
+    add_ms: Annotated[
+        str | None, Parameter(group="Tags", help="Match start (1-based read position).")
+    ] = None
+    add_me: Annotated[
+        str | None, Parameter(group="Tags", help="Match end (1-based read position).")
+    ] = None
+    add_tc: Annotated[
+        str | None,
+        Parameter(
+            group="Tags", help="On-target ('OnTarget') via cs tag, no errors in primer regions."
+        ),
+    ] = None
+    add_ap: Annotated[
+        str | None,
+        Parameter(group="Tags", help="Amplicon primer: 'Both'/'StartOnly'/'EndOnly'/'Neither'."),
+    ] = None
+    add_ss: Annotated[str | None, Parameter(group="Tags", help="Start (5') soft-clip length.")] = (
+        None
+    )
     add_es: Annotated[str | None, Parameter(group="Tags", help="End (3') soft-clip length.")] = None
-    add_dm: Annotated[str | None, Parameter(group="Tags", help="Sum of M+D CIGAR ops (aligned ref length, excl. introns).")] = None
-    add_ee: Annotated[str | None, Parameter(group="Tags", help="Error-event count from cs tag.")] = None
-    add_il: Annotated[str | None, Parameter(group="Tags", help="Longest insertion length in CIGAR.")] = None
-    add_dl: Annotated[str | None, Parameter(group="Tags", help="Longest deletion length in CIGAR.")] = None
-    add_nb: Annotated[str | None, Parameter(group="Tags", help="Next N bases from reference after alignment end (needs --fasta).")] = None
+    add_dm: Annotated[
+        str | None,
+        Parameter(group="Tags", help="Sum of M+D CIGAR ops (aligned ref length, excl. introns)."),
+    ] = None
+    add_ee: Annotated[
+        str | None, Parameter(group="Tags", help="Error-event count from cs tag.")
+    ] = None
+    add_il: Annotated[
+        str | None, Parameter(group="Tags", help="Longest insertion length in CIGAR.")
+    ] = None
+    add_dl: Annotated[
+        str | None, Parameter(group="Tags", help="Longest deletion length in CIGAR.")
+    ] = None
+    add_nb: Annotated[
+        str | None,
+        Parameter(
+            group="Tags", help="Next N bases from reference after alignment end (needs --fasta)."
+        ),
+    ] = None
 
     # --- Extraction ---
-    extract_sub_reads_fastq: Annotated[Path | None, Parameter(group="Extraction", help="Extract per-ref sub-reads to gzipped FASTQ.")] = None
-    extract_left_softclip_fastq: Annotated[Path | None, Parameter(group="Extraction", help="Extract 5' soft-clips to gzipped FASTQ.")] = None
-    extract_right_softclip_fastq: Annotated[Path | None, Parameter(group="Extraction", help="Extract 3' soft-clips to gzipped FASTQ.")] = None
+    extract_sub_reads_fastq: Annotated[
+        Path | None,
+        Parameter(group="Extraction", help="Extract per-ref sub-reads to gzipped FASTQ."),
+    ] = None
+    extract_left_softclip_fastq: Annotated[
+        Path | None, Parameter(group="Extraction", help="Extract 5' soft-clips to gzipped FASTQ.")
+    ] = None
+    extract_right_softclip_fastq: Annotated[
+        Path | None, Parameter(group="Extraction", help="Extract 3' soft-clips to gzipped FASTQ.")
+    ] = None
 
     # --- Tag statistics ---
-    fl_stats: Annotated[Path | None, Parameter(group="Tag statistics", help="FL tag statistics Parquet.")] = None
-    tc_stats: Annotated[Path | None, Parameter(group="Tag statistics", help="TC tag statistics Parquet.")] = None
-    ap_stats: Annotated[Path | None, Parameter(group="Tag statistics", help="AP tag statistics Parquet.")] = None
-    nb_stats: Annotated[Path | None, Parameter(group="Tag statistics", help="NB tag statistics Parquet.")] = None
+    fl_stats: Annotated[
+        Path | None, Parameter(group="Tag statistics", help="FL tag statistics Parquet.")
+    ] = None
+    tc_stats: Annotated[
+        Path | None, Parameter(group="Tag statistics", help="TC tag statistics Parquet.")
+    ] = None
+    ap_stats: Annotated[
+        Path | None, Parameter(group="Tag statistics", help="AP tag statistics Parquet.")
+    ] = None
+    nb_stats: Annotated[
+        Path | None, Parameter(group="Tag statistics", help="NB tag statistics Parquet.")
+    ] = None
 
-    verbose: Annotated[int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity (-v INFO, -vv DEBUG, -vvv TRACE).")] = 0
+    verbose: Annotated[
+        int,
+        Parameter(
+            alias="-v",
+            count=True,
+            group="Misc",
+            help="Increase verbosity (-v INFO, -vv DEBUG, -vvv TRACE).",
+        ),
+    ] = 0
 
 
 @app.command
@@ -114,17 +167,36 @@ class ErrorStatsArgs:
     config: Annotated[Path, Parameter(help="TOML config with per-ref error_primer_*_len.")]
     prefix: Annotated[
         Path | None,
-        Parameter(group="Output", help="Prefix for all 7 outputs ({p}.error.parquet, …). Mutually exclusive with the explicit --*-out flags."),
+        Parameter(
+            group="Output",
+            help="Prefix for all 7 outputs ({p}.error.parquet, …). Exclusive with --*-out flags.",
+        ),
     ] = None
-    error_out: Annotated[Path | None, Parameter(group="Output", help="Positional error counts Parquet.")] = None
-    mismatch_out: Annotated[Path | None, Parameter(group="Output", help="Mismatch matrix Parquet.")] = None
-    insertion_out: Annotated[Path | None, Parameter(group="Output", help="Insertion summary Parquet.")] = None
-    deletion_out: Annotated[Path | None, Parameter(group="Output", help="Deletion summary Parquet.")] = None
-    per_read_out: Annotated[Path | None, Parameter(group="Output", help="Per-read error Parquet.")] = None
-    per_base_out: Annotated[Path | None, Parameter(group="Output", help="Per-base error Parquet.")] = None
-    single_deletion_out: Annotated[Path | None, Parameter(group="Output", help="Single-deletion counts Parquet.")] = None
+    error_out: Annotated[
+        Path | None, Parameter(group="Output", help="Positional error counts Parquet.")
+    ] = None
+    mismatch_out: Annotated[
+        Path | None, Parameter(group="Output", help="Mismatch matrix Parquet.")
+    ] = None
+    insertion_out: Annotated[
+        Path | None, Parameter(group="Output", help="Insertion summary Parquet.")
+    ] = None
+    deletion_out: Annotated[
+        Path | None, Parameter(group="Output", help="Deletion summary Parquet.")
+    ] = None
+    per_read_out: Annotated[
+        Path | None, Parameter(group="Output", help="Per-read error Parquet.")
+    ] = None
+    per_base_out: Annotated[
+        Path | None, Parameter(group="Output", help="Per-base error Parquet.")
+    ] = None
+    single_deletion_out: Annotated[
+        Path | None, Parameter(group="Output", help="Single-deletion counts Parquet.")
+    ] = None
 
-    verbose: Annotated[int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")] = 0
+    verbose: Annotated[
+        int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")
+    ] = 0
 
 
 @app.command
@@ -146,12 +218,25 @@ class PileupArgs:
     """Arguments for ``sam-tagger pileup``."""
 
     input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags).")]
-    output: Annotated[Path, Parameter(alias="-o", help="Output pileup Parquet (seq_name,pos,ref,alt,dp,adf,adr,ad,af).")]
-    fasta: Annotated[Path | None, Parameter(help="Indexed reference FASTA for ref bases (else ref='.').")] = None
-    intervals: Annotated[Path | None, Parameter(help="BED restricting which positions are reported.")] = None
-    min_base_qual: Annotated[int, Parameter(group="Misc", help="Min base quality for pileup (Phred). Default 20.")] = 20
+    output: Annotated[
+        Path,
+        Parameter(
+            alias="-o", help="Output pileup Parquet (seq_name,pos,ref,alt,dp,adf,adr,ad,af)."
+        ),
+    ]
+    fasta: Annotated[
+        Path | None, Parameter(help="Indexed reference FASTA for ref bases (else ref='.').")
+    ] = None
+    intervals: Annotated[
+        Path | None, Parameter(help="BED restricting which positions are reported.")
+    ] = None
+    min_base_qual: Annotated[
+        int, Parameter(group="Misc", help="Min base quality for pileup (Phred). Default 20.")
+    ] = 20
 
-    verbose: Annotated[int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")] = 0
+    verbose: Annotated[
+        int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")
+    ] = 0
 
 
 @app.command

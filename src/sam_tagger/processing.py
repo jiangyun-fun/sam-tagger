@@ -7,9 +7,9 @@ those were orchestrator-level, handled in ``lib.py``.
 
 from __future__ import annotations
 
+import re
 from typing import IO
 
-import re
 from loguru import logger
 
 from sam_tagger.config import ApParams
@@ -218,7 +218,7 @@ def contains_primer(
     if len(primer) < min_match_len or len(sequence_to_check) < min_match_len:
         return False
     return any(
-        sequence_to_check[i:i + min_match_len] in primer
+        sequence_to_check[i : i + min_match_len] in primer
         for i in range(len(sequence_to_check) - min_match_len + 1)
     )
 
@@ -335,14 +335,14 @@ def extract_sub_read_for_ref_region(
                 copy_len = overlap_end - overlap_start
                 read_offset = overlap_start - current_ref_pos
                 rs = current_read_pos + read_offset
-                sub_seq.extend(read_seq[rs:rs + copy_len])
-                sub_qual.extend(read_qual[rs:rs + copy_len])
+                sub_seq.extend(read_seq[rs : rs + copy_len])
+                sub_qual.extend(read_qual[rs : rs + copy_len])
             current_ref_pos += op_len
             current_read_pos += op_len
         elif op == BAM_CINS:
             if current_ref_pos > target_ref_start and current_ref_pos < target_ref_end:
-                sub_seq.extend(read_seq[current_read_pos:current_read_pos + op_len])
-                sub_qual.extend(read_qual[current_read_pos:current_read_pos + op_len])
+                sub_seq.extend(read_seq[current_read_pos : current_read_pos + op_len])
+                sub_qual.extend(read_qual[current_read_pos : current_read_pos + op_len])
             current_read_pos += op_len
         elif op in (BAM_CDEL, BAM_CREF_SKIP):
             current_ref_pos += op_len
@@ -357,7 +357,9 @@ def extract_sub_read_for_ref_region(
     return bytes(sub_seq), sub_qual
 
 
-def resolve_subread_coords(unresolved_start: int, unresolved_end: int, ref_len: int) -> tuple[int, int] | None:
+def resolve_subread_coords(
+    unresolved_start: int, unresolved_end: int, ref_len: int
+) -> tuple[int, int] | None:
     """Resolve potentially negative coordinates.
 
     Negative values count from end: -1 → ref_len.
@@ -394,5 +396,7 @@ def fetch_next_n_bases(
         seq = faidx_reader.fetch(ref_name, reference_end, reference_end + fetch_len).upper()
         return seq
     except Exception as e:
-        logger.warning("Failed to fetch sequence for NB tag from FASTA for ref '{}': {}", ref_name, e)
+        logger.warning(
+            "Failed to fetch sequence for NB tag from FASTA for ref '{}': {}", ref_name, e
+        )
         return None

@@ -191,9 +191,7 @@ def build_params(
 
         # SubRead (stored unresolved; resolved per-read against header length)
         if ref.subread_start is not None and ref.subread_end is not None:
-            sub_read[name] = UnresolvedSubReadParams(
-                start=ref.subread_start, end=ref.subread_end
-            )
+            sub_read[name] = UnresolvedSubReadParams(start=ref.subread_start, end=ref.subread_end)
 
         # NB
         if ref.next_n is not None:

@@ -69,7 +69,9 @@ class PositionalErrorStats:
 
     data: list[tuple[str, int, int, int, int]] = field(default_factory=list)
 
-    def add(self, seq_name: str, position: int, insertion: int, deletion: int, mismatch: int) -> None:
+    def add(
+        self, seq_name: str, position: int, insertion: int, deletion: int, mismatch: int
+    ) -> None:
         self.data.append((seq_name, position, insertion, deletion, mismatch))
 
     def to_dataframe(self) -> pl.DataFrame:

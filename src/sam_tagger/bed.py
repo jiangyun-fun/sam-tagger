@@ -16,9 +16,7 @@ class Interval:
 
     def __post_init__(self) -> None:
         if self.start >= self.end:
-            raise ValueError(
-                f"Interval start ({self.start}) must be less than end ({self.end})"
-            )
+            raise ValueError(f"Interval start ({self.start}) must be less than end ({self.end})")
 
     def overlaps(self, other: Interval) -> bool:
         return self.start < other.end and other.start < self.end
@@ -27,9 +25,7 @@ class Interval:
         return read_start < self.end and self.start < read_end
 
     def merge(self, other: Interval) -> Interval:
-        return Interval(
-            start=min(self.start, other.start), end=max(self.end, other.end)
-        )
+        return Interval(start=min(self.start, other.start), end=max(self.end, other.end))
 
 
 def parse_bed(path: Path) -> dict[str, list[Interval]]:
@@ -47,9 +43,7 @@ def parse_bed(path: Path) -> dict[str, list[Interval]]:
             start = int(parts[1])
             end = int(parts[2])
             if start >= end:
-                raise ValueError(
-                    f"Line {line_num}: invalid interval (start {start} >= end {end})"
-                )
+                raise ValueError(f"Line {line_num}: invalid interval (start {start} >= end {end})")
             raw.setdefault(chrom, []).append(Interval(start, end))
 
     merged: dict[str, list[Interval]] = {}
@@ -73,9 +67,7 @@ def _merge_intervals_sorted(intervals: list[Interval]) -> None:
     intervals[:] = merged
 
 
-def read_overlaps_intervals(
-    read_start: int, read_end: int, intervals: list[Interval]
-) -> bool:
+def read_overlaps_intervals(read_start: int, read_end: int, intervals: list[Interval]) -> bool:
     """Binary search check if a read overlaps any interval."""
     idx = bisect_left(intervals, read_start, key=lambda i: i.end)
     for iv in intervals[idx:]:
