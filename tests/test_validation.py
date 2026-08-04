@@ -80,6 +80,7 @@ def test_error_stats_missing_error_config_raises(tmp_path) -> None:
     # config declares tc params but no error_primer_*_len -> cfg.error is None
     cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
+    assert setup.config_path is not None
     with pytest.raises(ValueError, match="error_primer"):
         run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path,
                                        prefix=tmp_path / "err"))
@@ -88,6 +89,7 @@ def test_error_stats_missing_error_config_raises(tmp_path) -> None:
 def test_error_stats_neither_prefix_nor_explicit_raises(tmp_path) -> None:
     cfg = "[seq1]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
+    assert setup.config_path is not None
     # error config is fine, but no prefix and no explicit out paths -> from_args raises
     with pytest.raises(ValueError, match="prefix|seven"):  # message mentions prefix / seven paths
         run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path))

@@ -136,6 +136,7 @@ def test_empty_bam_annotate_pileup_errorstats(tmp_path: Path) -> None:
     run_pileup(PileupArgs(input_bam=setup.input_bam, output=pileup_out, min_base_qual=20))
     assert pl.read_parquet(pileup_out).height == 0
 
+    assert setup.config_path is not None
     pre = tmp_path / "err"
     run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=pre))
     for ext in ("error", "mismatch", "insertion", "deletion", "per_read", "per_base", "single_deletion"):

@@ -44,8 +44,8 @@ def time_cmd(cmd: list[str], reps: int) -> tuple[float, int]:
             print(r.stderr[-2000:])
             sys.exit(1)
     rv = subprocess.run([GNU_TIME, "-v", *cmd], capture_output=True, text=True)
-    rss = next((int(l.split(":")[-1]) for l in rv.stderr.splitlines()
-                if "Maximum resident set size" in l), 0)
+    rss = next((int(line.split(":")[-1]) for line in rv.stderr.splitlines()
+                if "Maximum resident set size" in line), 0)
     return min(times), rss
 
 

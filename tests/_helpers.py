@@ -71,7 +71,7 @@ def get_bam_tags_as_int(bam_path: Path) -> dict[str, dict[str, int]]:
         for record in reader.fetch(until_eof=True):
             qname = record.query_name or ""
             result[qname] = {
-                t: record.get_tag(t)
+                t: int(record.get_tag(t))
                 for t in ("FL", "MS", "ME", "SS", "ES", "DM", "EE", "IL", "DL")
                 if record.has_tag(t)
             }
@@ -84,7 +84,7 @@ def get_bam_tags_as_string(bam_path: Path) -> dict[str, dict[str, str]]:
         for record in reader.fetch(until_eof=True):
             qname = record.query_name or ""
             result[qname] = {
-                t: record.get_tag(t) for t in ("TC", "AP", "NB") if record.has_tag(t)
+                t: str(record.get_tag(t)) for t in ("TC", "AP", "NB") if record.has_tag(t)
             }
     return result
 

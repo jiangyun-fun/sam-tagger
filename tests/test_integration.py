@@ -80,7 +80,7 @@ def get_bam_tags_as_int(bam_path: Path) -> dict[str, dict[str, int]]:
         for record in reader.fetch(until_eof=True):
             qname = record.query_name or ""
             result[qname] = {
-                t: record.get_tag(t)
+                t: int(record.get_tag(t))
                 for t in ("FL", "MS", "ME", "SS", "ES", "DM", "EE", "IL", "DL")
                 if record.has_tag(t)
             }
@@ -94,7 +94,7 @@ def get_bam_tags_as_string(bam_path: Path) -> dict[str, dict[str, str]]:
         for record in reader.fetch(until_eof=True):
             qname = record.query_name or ""
             result[qname] = {
-                t: record.get_tag(t) for t in ("TC", "AP") if record.has_tag(t)
+                t: str(record.get_tag(t)) for t in ("TC", "AP") if record.has_tag(t)
             }
     return result
 
@@ -263,6 +263,7 @@ class TestErrorStats:
             "err_read2\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAACACTCCCCCCCCCCCCCCCCCCC\t*\tcs:Z::7*ct:20"
         )
         setup = setup_env(tmp_path, cfg, H_SEQ1_28, sam_records)
+        assert setup.config_path is not None
         prefix = tmp_path / "stats"
         run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix))
 

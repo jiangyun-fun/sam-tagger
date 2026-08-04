@@ -33,6 +33,10 @@ packages = ["src/sam_tagger"]
 testpaths = ["tests"]
 
 [tool.pyright]
+# Type-check the shipped package + tests. One-off scripts/ harnesses are
+# excluded (their subprocess.run overloads are noise, not shipped code).
+include = ["src", "tests"]
+exclude = [".pixi", "build", "scripts"]
 typeCheckingMode = "basic"
 reportPrivateImportUsage = false
 
