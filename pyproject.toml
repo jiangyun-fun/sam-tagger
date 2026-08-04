@@ -42,3 +42,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test fixtures embed long tab-delimited SAM record literals.
+"tests/*" = ["E501"]
