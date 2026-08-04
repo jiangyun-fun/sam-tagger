@@ -1,0 +1,98 @@
+---
+title: "sam-tagger Tier 1 + Tier 2 features — completion report"
+author: "Yun Jiang"
+date: "2026-08-05"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Outcome
+
+All four features shipped, one Conventional Commit per stage, on top of a
+green baseline. Plan:
+[20260805-002629_tier1-tier2-features.plan.qmd](./20260805-002629_tier1-tier2-features.plan.qmd).
+
+| # | Commit | Stage |
+|---|--------|-------|
+| 0 | `6a49600 chore: type-check src+tests and fix pre-existing lint/type drift` | baseline (added) |
+| 1 | `7851b8b docs: refine Tier 1 + Tier 2 plan after re-exploration` | plan refinement |
+| 2 | `bc2e2d4 feat: per-reference QC summary subcommand (qc-summary)` | Tier 1 |
+| 3 | `cbe48c8 feat: warn when reads lack a cs tag` | Tier 2a |
+| 4 | `aea874d feat: CRAM/SAM output via --output-format; auto-detect input` | Tier 2b |
+| 5 | `5ec3af9 docs: expose a public library API (__all__)` | Tier 2c |
+
+# What was built
+
+- **Tier 1 — `qc-summary`.** A fourth subcommand: one Parquet row per BAM-header
+  reference joining FL, TC, AP, and per-base error counts/rate. `--config` is
+  **optional** (FL + `total_reads` always compute; TC/AP/error populate only
+  with config). Reuses the shared `processing.py` functions + `ErrorStatsCollector`
+  for the error tally — no logic duplication. Output columns: `seq_name,
+  total_reads, fl, fl_pct, on_target, on_target_pct, ap_Both, ap_StartOnly,
+  ap_EndOnly, ap_Neither, mismatches, insertions, deletions, aligned_bases,
+  error_rate`. Zero-read refs appear with zeros.
+- **Tier 2a — cs pre-flight warning.** `_CsWatch` counts mapped reads lacking a
+  `cs` tag; warns once early (≥1000 reads, >50% missing) plus a final summary.
+  Warn-only, gated on whether a cs-dependent feature is active; wired into all
+  four orchestrators.
+- **Tier 2b — CRAM/SAM I/O.** `_open_reader` auto-detects BAM/CRAM/SAM for file
+  inputs; `_open_writer(output, header, fmt, fasta)`; `annotate --output-format
+  bam|cram|sam` (CRAM requires `--fasta`, fail-fast). cyclopts validates the
+  `Literal` choice (probed first).
+- **Tier 2c — library API.** `sam_tagger.__all__` re-exports the 4 orchestrators,
+  4 Args dataclasses, 4 collectors, and `load_config`.
+
+# Verification (evidence)
+
+Commands run before every stage commit, all green:
+
+```bash
+pixi run -e dev test       # 126 passed (105 baseline + 21 new)
+pixi run -e dev lint       # ruff check . — All checks passed!
+pixi run -e dev typecheck  # pyright — 0 errors, 0 warnings, 0 informations
+```
+
+New tests: `test_qc_summary.py` (6: multi-ref + zero-read ref, all 4 AP
+statuses, no-config, error cross-check vs `error-stats`, empty BAM, CLI
+dispatch), `test_cs_warning.py` (7: `_CsWatch` threshold/frac/disabled/silent +
+orchestrator wiring), `test_cram.py` (6: CRAM round-trip, auto-detect read, SAM
+output, BAM default, cram-without-fasta raises, invalid format rejected),
+`test_public_api.py` (2).
+
+Behavioural checks:
+
+- `sam-tagger --help` lists **four** subcommands; `qc-summary --help` shows
+  `-i/-o/--config` (`--config` optional).
+- `qc-summary` error columns match a hand-join of `error-stats` per_base on the
+  same BAM (`test_qc_summary_error_matches_error_stats`).
+- A no-cs BAM triggers exactly one summary warning through `qc-summary` and
+  `annotate --add-ee`; `annotate --add-fl` alone stays silent.
+- `annotate --output-format cram --fasta ref.fa` writes a CRAM whose `FL` tag
+  survives re-reading (this env's htslib supports CRAM write — all CRAM tests
+  run, none skipped).
+- `from sam_tagger import run_annotate, AnnotateArgs` works (`test_public_api`).
+
+# Deviations from plan (and why)
+
+- **Baseline cleanup (`6a49600`) added.** The plan assumed the `pixi run -e dev`
+  gate was green; it was not — `typecheck` (pyright, no path arg) had 34
+  pre-existing errors and `lint` had 1, because prior work measured narrower
+  scopes. Codified `[tool.pyright] include=["src","tests"] exclude=["scripts"]`
+  and fixed 8 real test type errors + 1 lint (`l` → `line`).
+- **`ErrorStatsCollector._write_*` take a `paths` param.** Making `paths`
+  Optional triggered `reportOptionalMemberAccess` in the 7 writers; passing a
+  narrowed local (not 7 asserts) is the type-clean fix. `write_results` raises
+  if `paths is None` (fail-loud).
+- **`_HasCsTag` Protocol** added so `_CsWatch.observe` is unit-testable with a
+  fake record (and still accepts `pysam.AlignedSegment`).
+- **Stage 1 `run_qc_summary` shipped without `_CsWatch`**; stage 2 retro-fit it
+  into all four orchestrators, exactly as the staged plan specified.
+
+# Out of scope (unchanged)
+
+snakeforge-templates embedding, CI workflow, GitHub remote — separate follow-ups.

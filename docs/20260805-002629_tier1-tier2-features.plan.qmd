@@ -340,17 +340,36 @@ fetched lazily by users via the same names the CLI uses.)
 `README.md`: a "Python API" section with a worked example (construct
 `AnnotateArgs`, call `run_annotate`). No codegen — just docs + `__all__`.
 
-# Commit stages (one Conventional Commit each)
+# Commit stages (one Conventional Commit each) — ALL DONE
 
-0. `chore: type-check src+tests and fix pre-existing lint/type drift` — **DONE** (`6a49600`).
-1. `docs: refine Tier 1 + Tier 2 plan after re-exploration` — this rewrite.
-2. `feat: per-reference QC summary subcommand (qc-summary)` — cli `QcSummaryArgs` + `qc_summary`; `run_qc_summary`; `stats/qc_summary.py`; `ErrorStatsCollector` Optional-`paths` + `per_base_counts` refactor; `test_qc_summary.py`; README qc-summary section.
-3. `feat: warn when reads lack a cs tag` — `_CsWatch` wired into all 4 orchestrators; `test_cs_warning.py`.
-4. `feat: CRAM/SAM output via --output-format; auto-detect input` — `_open_reader`/`_open_writer` + `AnnotateArgs.output_format`; `test_cram.py`; README.
-5. `docs: expose a public library API (__all__)` — `__init__.__all__` + README Python-API section.
-6. `docs: report Tier 1 + Tier 2 completion` — `report.qmd` + plan rewritten in place to match reality.
+0. `chore: type-check src+tests and fix pre-existing lint/type drift` — `6a49600` (added: the gate was not actually green; codified pyright scope + fixed 8 test type errors + 1 lint).
+1. `docs: refine Tier 1 + Tier 2 plan after re-exploration` — `7851b8b`.
+2. `feat: per-reference QC summary subcommand (qc-summary)` — `bc2e2d4`.
+3. `feat: warn when reads lack a cs tag` — `cbe48c8`.
+4. `feat: CRAM/SAM output via --output-format; auto-detect input` — `aea874d`.
+5. `docs: expose a public library API (__all__)` — `5ec3af9`.
+6. `docs: report Tier 1 + Tier 2 completion` — this plan rewritten in place + `20260805-013448_*.report.qmd`.
 
-Run `pixi run -e dev test && pixi run -e dev lint && pixi run -e dev typecheck` before each commit; require all green.
+`pixi run -e dev test && pixi run -e dev lint && pixi run -e dev typecheck` was run before each commit; all green throughout (final: 126 tests, ruff clean, pyright 0 errors).
+
+# As-built notes (deviations from the design above)
+
+- **Baseline cleanup (`6a49600`) was added.** The plan assumed the gate was
+  green; it was not — pyright (no path arg) had 34 pre-existing errors and ruff
+  had 1, because prior work measured narrower scopes (`pyright src/`, `ruff src/
+  tests/`). Fixed by codifying `[tool.pyright] include=["src","tests"]
+  exclude=["scripts"]` and fixing 8 genuine test type errors + the E741 lint.
+- **`ErrorStatsCollector._write_*` take a `paths` param** (not 7 asserts). Making
+  `paths` Optional triggered `reportOptionalMemberAccess` in the 7 writers;
+  passing a narrowed local from `write_results` is the type-clean fix.
+  `write_results` raises if `paths is None` (fail-loud); new `per_base_counts()`
+  accessor added for qc-summary.
+- **`_HasCsTag` Protocol** added in `lib.py` so `_CsWatch.observe` is
+  unit-testable with a fake record while still accepting `pysam.AlignedSegment`.
+- **Stage 1 `run_qc_summary` shipped without `_CsWatch`**; stage 2 retro-fit it
+  into all four orchestrators, as the staged plan specified.
+- **CRAM write works in this env** (conda pysam's htslib); all `test_cram.py`
+  cases run, none skip.
 
 # Risks
 
