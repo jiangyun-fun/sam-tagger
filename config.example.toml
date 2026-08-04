@@ -1,0 +1,34 @@
+# sam-tagger configuration — one [ref-name] table per reference.
+#
+# Every field is optional; declare only what the features you use need.
+# Unknown keys are rejected (typos become hard errors). seq_name and seq_len
+# come from the BAM header, so the table name must match a @SQ SN in the BAM.
+#
+# Field -> used by
+#   tc_primer_start_len / tc_primer_end_len            annotate: --add-tc / --tc-stats
+#   amp_primer_start_len / amp_primer_end_len          annotate: --add-ap / --ap-stats
+#   amp_primer_start_seq / amp_primer_end_seq          annotate: --add-ap / --ap-stats
+#   amp_primer_start_min_match / amp_primer_end_min_match  (optional, default 7)
+#   error_primer_start_len / error_primer_end_len      error-stats
+#   subread_start / subread_end                        annotate: --extract-sub-reads-fastq
+#   next_n                                             annotate: --add-nb / --nb-stats (needs --fasta)
+#
+# FL and the CIGAR-only tags (MS/ME/SS/ES/DM/EE/IL/DL) need NO config.
+# Ref names with characters outside [A-Za-z0-9_-] must be quoted, e.g. ["150-1-P"].
+
+[seq1]
+tc_primer_start_len = 8
+tc_primer_end_len = 8
+amp_primer_start_len = 9
+amp_primer_end_len = 7
+amp_primer_start_seq = "GGGGGGGGG"
+amp_primer_end_seq = "CCCCCCC"
+error_primer_start_len = 5
+error_primer_end_len = 5
+subread_start = 12
+subread_end = 21
+next_n = 6
+
+["150-1-P"]
+error_primer_start_len = 10
+error_primer_end_len = 10

@@ -1,0 +1,82 @@
+---
+title: "sam-tagger refactor — completion report"
+author: "Yun Jiang"
+date: "2026-08-04"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Outcome
+
+`bam_tagger`/`py-bam-tagger` (one ~50-flag command) was refactored into
+**`sam-tagger`** (`src/sam_tagger/`, v3.0.0): three focused subcommands with
+fixed I/O contracts, a single-source-of-truth pydantic/TOML config, and the
+redundant tags removed. Plan: [20260804-195910_refactor-sam-tagger.plan.qmd](./20260804-195910_refactor-sam-tagger.plan.qmd).
+
+Eight staged commits (one per phase):
+
+| # | Commit                                                                    |
+|---|---------------------------------------------------------------------------|
+| 1 | `chore: scaffold sam-tagger project`                                      |
+| 2 | `feat: port BED interval parser and Parquet stats writer`                 |
+| 3 | `feat: pydantic TOML config loader (single source of truth)`              |
+| 4 | `feat: port processing core (CIGAR + cs-tag helpers)`                     |
+| 5 | `feat: cyclopts CLI with annotate / error-stats / pileup subcommands`     |
+| 6 | `feat: stats collectors (tag/error/pileup), decoupled from the CLI`       |
+| 7 | `feat: per-subcommand orchestrators + entrypoint`                         |
+| 8 | `test: integration suite for the three subcommands`                       |
+
+# What changed vs. the port
+
+- **Subcommands.** `annotate` (BAM→BAM + FASTQ + tag stats), `error-stats`
+  (BAM→7 Parquet, read-only), `pileup` (BAM→Parquet, read-only). Each binds to
+  a dataclass via `Annotated[Args, Parameter(name="")]`, so the dataclass is the
+  single source of truth for both CLI flags and the orchestrator — no field-list
+  duplication, clean `--config` (not `--args.config`).
+- **Config.** The 13 CLI override flags + the "generic" CSV columns + the
+  duplicated Path 1/Path 2 branches are gone. One pydantic-validated TOML file
+  (`config.py`, `RefConfig(extra="forbid")`); `seq_name`/`seq_len` come from the
+  BAM header. `FL` and the CIGAR-only tags need no config.
+- **Tags dropped.** `HI`/`HD` (= `IL>0` / `DL>0`) and `SP` (= `SS+1`). Kept:
+  `FL MS ME TC AP SS ES DM EE IL DL NB`.
+- **Robustness.** `annotate` validates and fails fast before opening any output
+  (e.g. `--add-tc` without a tc config, `--add-nb` without `--fasta`). Resources
+  managed with `ExitStack` + `closing()`.
+
+# Verification (evidence)
+
+- **Tests:** `pixi run -e dev pytest -q` → **25 passed** (8 config unit + 17
+  integration: tagging, tag stats, error-stats, 9 pileup scenarios, soft-clip +
+  sub-read extraction). Ported from py-bam-tagger; behavioral assertions
+  preserved (only HI/HD/SP removed).
+- **Lint:** `pixi run -e dev ruff check src/ tests/` → **All checks passed!**
+- **Typecheck:** `pixi run -e dev pyright src/sam_tagger/` → **0 errors**.
+- **End-to-end smoke** through the `sam-tagger` binary: `annotate` wrote FL=1 /
+  TC=OnTarget / EE counts; `error-stats` wrote all 7 Parquet files; `pileup`
+  emitted per-position rows.
+
+# Embedding into snakeforge-templates (next step, not done here)
+
+`sam-tagger` fits the existing pattern (`cs_tagger`, `sam_formatter` kits) and
+runs after `cs-tagger` (`minimap2 → cs-tagger → sam-tagger`). The follow-up is a
+`snakeforge_templates/sam_tagger/` kit: a BaseRule wrapper per subcommand +
+`environment.yaml` (conda `pysam`, pypi `polars/cyclopts/loguru/pydantic`,
+editable `sam-tagger`) + fixtures + `guide.qmd` + a Tier-2 shell test. The three
+fixed-contract subcommands map one-to-one onto three templates (the bcftools
+model). Out of scope for this refactor.
+
+# Notes / deviations from plan
+
+- `processing.py` landed as its **own** commit (4), after `config.py` (3), to
+  respect the import dependency (`processing` imports `config.ApParams`); the
+  plan had listed it under stage 2.
+- `test_processing.py` unit tests were folded into the integration suite rather
+  than ported separately — the integration tests cover the CIGAR/cs logic
+  end-to-end and are the real regression net.
+- Dev tooling (`pytest`/`ruff`/`pyright`) lives in the `dev` environment, so dev
+  tasks take `pixi run -e dev <task>` (documented in the README).

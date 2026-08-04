@@ -13,6 +13,10 @@ include-in-header:
 
 # Objective
 
+> **Status: COMPLETE.** Implemented across 9 commits (8 planned + 1 type-fix).
+> All gates green: 25 tests pass, ruff clean, pyright 0 errors.
+> See [20260804-203315_refactor-sam-tagger.report.qmd](./20260804-203315_refactor-sam-tagger.report.qmd).
+
 Refactor the `py-bam-tagger` Rust→Python port into a clean, robust tool renamed
 **`sam-tagger`** (package `sam_tagger`), then make it embeddable into
 `snakeforge-templates`. This is a deliberate redesign, not a faithful re-port:
@@ -97,16 +101,17 @@ Parsed by `tomllib`, validated by a pydantic `RefConfig`; `seq_len` is joined
 from the BAM header to build the immutable `TcParams`/`ApParams`/`ErrorParams`/
 `UnresolvedSubReadParams` consumed by `processing`.
 
-# Commit stages (one Conventional Commit each)
+# Commit stages (one Conventional Commit each) — as executed
 
 1. `chore: scaffold sam-tagger project` — pyproject/pixi/skeleton/plan doc.
-2. `feat: port BED, parquet writer, and processing core` — bed/parquet_writer/processing.
-3. `feat: pydantic TOML config loader (single-path)` — config + unit test.
-4. `feat: cyclopts CLI with annotate/error-stats/pileup subcommands` — cli.
-5. `feat: stats collectors (tag/error/pileup), decoupled from Cli` — stats/*.
-6. `feat: per-subcommand orchestrators + entrypoint` — lib + __main__.
-7. `test: integration suite for the three subcommands` — tests.
-8. `docs: finalize README, sample config, report` — docs + rewrite plan in place.
+2. `feat: port BED interval parser and Parquet stats writer` — bed/parquet_writer.
+3. `feat: pydantic TOML config loader (single source of truth)` — config + unit test.
+4. `feat: port processing core (CIGAR + cs-tag helpers)` — processing (own commit, after config, due to the `config.ApParams` import).
+5. `feat: cyclopts CLI with annotate/error-stats/pileup subcommands` — cli.
+6. `feat: stats collectors (tag/error/pileup), decoupled from the CLI` — stats/*.
+7. `feat: per-subcommand orchestrators + entrypoint` — lib + __main__.
+8. `test: integration suite for the three subcommands` — tests.
+9. `fix` (type-check) + `docs: finalize` — pyright fixes, README/sample config/report, plan rewritten in place.
 
 # Risks
 
