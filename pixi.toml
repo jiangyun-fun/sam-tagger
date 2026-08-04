@@ -1,0 +1,35 @@
+[workspace]
+authors = ["Yun Jiang <jiangyunacw@gmail.com>"]
+channels = ["conda-forge", "bioconda"]
+name = "sam-tagger"
+platforms = ["linux-64"]
+version = "3.0.0"
+
+[tasks]
+test = "pytest -q"
+test-fast = "pytest -q -x"
+lint = "ruff check ."
+lint-fix = "ruff check --fix ."
+format = "ruff format ."
+typecheck = "pyright"
+
+[environments]
+dev = ["dev"]
+
+[dependencies]
+python = "3.13.*"
+pysam = ">=0.22"
+
+[pypi-dependencies]
+polars = ">=1.0"
+cyclopts = ">=3.0"
+loguru = ">=0.7"
+pydantic = ">=2.0"
+sam-tagger = { path = ".", editable = true }
+
+[feature.dev.dependencies]
+ruff = ">=0.11"
+pyright = ">=1.1"
+
+[feature.dev.pypi-dependencies]
+pytest = ">=8.0"

@@ -1,0 +1,135 @@
+---
+title: "sam-tagger refactor — subcommand split, config redesign, prune redundant tags"
+author: "Yun Jiang"
+date: "2026-08-04"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Objective
+
+Refactor the `py-bam-tagger` Rust→Python port into a clean, robust tool renamed
+**`sam-tagger`** (package `sam_tagger`), then make it embeddable into
+`snakeforge-templates`. This is a deliberate redesign, not a faithful re-port:
+drop redundant surface, collapse the duplicated config paths, and split the one
+mega-command into focused subcommands with fixed I/O contracts.
+
+# Decisions (approved)
+
+1. **Keep pileup** (`pileup` subcommand). Drop decision rejected by user.
+2. **Drop redundant tags**: `HI`/`HD` (provably `=IL>0`/`=DL>0`, see
+   `processing.calculate_max_indel_lengths`) and `SP` (provably `=SS+1`,
+   `py-bam-tagger/src/py_bam_tagger/lib.py:328`).
+3. **Delete the 13 CLI override flags + the "generic" CSV columns**. They are a
+   4-level `_first()` duplication of the config file (`config.py:145-156`) and
+   exist only to support the no-config "Path 2" branch, which is strictly weaker
+   (global-to-all-refs params). Config becomes the single source of truth.
+4. **Subcommands via cyclopts**: `annotate` (default), `error-stats`, `pileup` —
+   one output shape each, mirroring the `snakeforge_templates/bcftools` kit.
+5. **Pydantic-validated TOML config** (replaces `csv.DictReader` + manual
+   `int()`). `seq_name`/`seq_len` always come from the BAM header, so the config
+   only carries per-ref primer/subread/NB parameters.
+6. `FL` needs **no config** (uses header ref length directly).
+
+# Scope — what each subcommand does
+
+| Subcommand  | Reads | Writes | Needs config? | Notes |
+|-------------|-------|--------|----------------|-------|
+| `annotate`  | BAM   | BAM (+ optional `.fastq.gz`, optional FL/TC/AP/NB `.parquet`) | only for TC/AP/NB/subread-extract | single pass; keeps FL,MS,ME,TC,AP,SS,ES,DM,EE,IL,DL,NB |
+| `error-stats` | BAM | 7 `.parquet` (prefix or explicit paths) | yes (error primers) | read-only, no BAM copy |
+| `pileup`    | BAM (+ optional FASTA, BED) | 1 `.parquet` | no (FASTA optional for ref bases) | read-only |
+
+# Files to create in `/bioproj/tools/github/sam-tagger`
+
+```
+pyproject.toml          # hatchling, sam-tagger 3.0.0, deps polars/cyclopts/loguru/pydantic
+pixi.toml               # py3.13, conda pysam, tasks test/lint/typecheck/run
+.gitignore
+README.md
+config.example.toml     # documented sample config
+src/sam_tagger/
+  __init__.py           # __version__
+  __main__.py           # dispatch subcommands
+  cli.py                # cyclopts App + 3 subcommands + AnnotateArgs/ErrorStatsArgs/PileupArgs
+  config.py             # pydantic RefConfig + TOML loader, single path
+  bed.py                # ported as-is
+  processing.py         # ported as-is (CIGAR/cs helpers; HI/HD/SP were never here)
+  parquet_writer.py     # ported as-is
+  lib.py                # run_annotate / run_error_stats / run_pileup + shared helpers
+  stats/
+    __init__.py
+    tag_stats.py        # decoupled from Cli -> takes AnnotateArgs + config
+    error_stats.py      # decoupled -> takes ErrorStatsArgs
+    pileup_stats.py     # already decoupled; ported as-is
+tests/
+  test_config.py
+  test_processing.py    # unit (CIGAR/cs)
+  test_integration.py   # end-to-end per subcommand, TOML config
+docs/
+  20260804-195910_refactor-sam-tagger.plan.qmd   # this file
+  20260804-195910_refactor-sam-tagger.report.qmd # written at the end
+```
+
+# Config schema (TOML)
+
+```toml
+# one [ref-name] table per reference; every field optional
+[seq1]
+tc_primer_start_len  = 8
+tc_primer_end_len    = 8
+amp_primer_start_len = 9
+amp_primer_end_len   = 7
+amp_primer_start_seq = "GGGGGGGGG"
+amp_primer_end_seq   = "CCCCCCC"
+error_primer_start_len = 5
+error_primer_end_len   = 5
+subread_start = 12
+subread_end   = 21
+next_n        = 6
+```
+
+Parsed by `tomllib`, validated by a pydantic `RefConfig`; `seq_len` is joined
+from the BAM header to build the immutable `TcParams`/`ApParams`/`ErrorParams`/
+`UnresolvedSubReadParams` consumed by `processing`.
+
+# Commit stages (one Conventional Commit each)
+
+1. `chore: scaffold sam-tagger project` — pyproject/pixi/skeleton/plan doc.
+2. `feat: port BED, parquet writer, and processing core` — bed/parquet_writer/processing.
+3. `feat: pydantic TOML config loader (single-path)` — config + unit test.
+4. `feat: cyclopts CLI with annotate/error-stats/pileup subcommands` — cli.
+5. `feat: stats collectors (tag/error/pileup), decoupled from Cli` — stats/*.
+6. `feat: per-subcommand orchestrators + entrypoint` — lib + __main__.
+7. `test: integration suite for the three subcommands` — tests.
+8. `docs: finalize README, sample config, report` — docs + rewrite plan in place.
+
+# Risks
+
+- **Behavioral drift from the port.** Mitigation: keep `processing.py`,
+  `bed.py`, `parquet_writer.py`, and the stats *tally/write* bodies byte-for-byte;
+  only change construction (decouple from `Cli`). The integration tests (ported,
+  adapted to TOML + subcommands) are the regression net.
+- **cyclopts subcommand API.** Mitigation: probe the installed cyclopts version
+  empirically before writing `cli.py` (do not rely on memory of the API).
+- **Splitting stats into their own subcommands re-reads the BAM** when a user
+  wants tags + error-stats + pileup together. Accepted tradeoff (the user chose
+  template-ability over single-pass). Amplicon BAMs are small; the `cs` tag is
+  already on the BAM (post `cs-tagger`), so re-reads are cheap.
+- **TOML config is a breaking change** for existing CSV users. Mitigation:
+  ship `config.example.toml` + README migration note. Version bumped to 3.0.0.
+
+# Verification criteria
+
+- `pixi run test` green (unit + integration).
+- `pixi run lint` (ruff) and `pixi run typecheck` (pyright) clean.
+- `sam-tagger --help` shows three subcommands; each `--help` shows a clean,
+  override-free flag set (no `--primer-start-len` etc.).
+- `sam-tagger annotate -i ... -o ... --add-tc TC --config c.toml` reproduces the
+  port's TC tagging; `sam-tagger pileup` reproduces the SNP/indel pileup rows;
+  `sam-tagger error-stats` reproduces the 7-file output.
+- No `HI`/`HD`/`SP` tags anywhere in code or tests.

@@ -1,0 +1,17 @@
+# pixi
+.pixi/
+pixi.lock
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+
+# editor / os
+.DS_Store
+*~
