@@ -95,7 +95,33 @@ The remaining ~8.6 s is the inherent base-by-base Python loop in the match
 branch (interval check + quality filter + dict tally per base) — the pure-Python
 floor; further gains would need C extension or vectorization.
 
+## Real-data benchmark + equivalence (production oligo-pool BAM)
 
+`scripts/bench_real.py` on a real ecsngsqc sample
+(`20260716-WXZ-1-138NT_S355…minimap2_se.bam`, **3,574,155 records**, 1056
+references of 71–106 bp, cs tags on every mapped read), min of 2 runs:
+
+| workload | bam_tagger (Rust) | sam-tagger (Python) | py/rust |
+|---|---|---|---|
+| annotate (core tags, 1 pass) | 34.4 s (104 kreads/s) | 63.6 s (56 kreads/s) | **1.8×** |
+| pileup | 67.8 s (53 kreads/s) | 184.9 s (19 kreads/s) | **2.7×** |
+
+Peak RSS: annotate rust 10 MB / py 72 MB; pileup rust 294 MB / py 365 MB.
+
+The ratios are far better than the synthetic benchmark (4.9× / 9.9×) because on
+this data the alignments are to **short oligo references** (≤106 bp), so each
+read's cs tag is short and the Python per-record work is small and bounded; a
+larger share of wall time is pysam's C-backed BAM I/O, which both tools share.
+
+**Equivalence on the same real data**: the bench's outputs were diffed —
+3,574,155 reads × 9 core tags with **0 diffs**, and pileup 492,853 rows with
+**0 cell diffs**. sam-tagger is byte-identical to bam_tagger on this production
+BAM. (TC/AP/NB/error-stats omitted here only for want of the real per-oligo
+primer config; proven identical on synthetic data below.)
+
+
+
+# Differential validation vs bam_tagger 2.0.6 (synthetic, 5 seeds)
 
 `scripts/diff_test.py` generates a multi-amplicon reference, simulates reads
 (both strands, SNPs/indels, varied qualities, unmapped), aligns with
@@ -122,6 +148,8 @@ The comparison runs both tools on the Rust-compatible subset for fairness; the
 harness separately confirms sam-tagger exits 0 on the full 900-record input.
 
 
+
+# Embedding into snakeforge-templates (next step, not done here)
 
 `sam-tagger` fits the existing pattern (`cs_tagger`, `sam_formatter` kits) and
 runs after `cs-tagger` (`minimap2 → cs-tagger → sam-tagger`). The follow-up is a
