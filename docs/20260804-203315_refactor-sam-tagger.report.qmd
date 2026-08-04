@@ -50,10 +50,14 @@ Eight staged commits (one per phase):
 
 # Verification (evidence)
 
-- **Tests:** `pixi run -e dev pytest -q` → **25 passed** (8 config unit + 17
-  integration: tagging, tag stats, error-stats, 9 pileup scenarios, soft-clip +
-  sub-read extraction). Ported from py-bam-tagger; behavioral assertions
-  preserved (only HI/HD/SP removed).
+- **Tests:** `pixi run -e dev pytest -q` → **105 passed** across 8 files:
+  `test_config` (8), `test_bed` (10), `test_processing` (13),
+  `test_parquet_writer` (14), `test_stats` (18 — collectors incl. intervals),
+  `test_cli` (10 — cyclopts dispatch + flag parsing), `test_validation` (9 —
+  fail-fast paths), `test_integration` (17 — tagging/stats/pileup/extraction),
+  `test_complex` (6 — multi-feature run, `--intervals` merge, empty BAM, no-cs
+  reads, NB FASTA + boundary). Behavioral assertions preserved from the port
+  (only HI/HD/SP removed).
 - **Lint:** `pixi run -e dev ruff check src/ tests/` → **All checks passed!**
 - **Typecheck:** `pixi run -e dev pyright src/sam_tagger/` → **0 errors**.
 - **End-to-end smoke** through the `sam-tagger` binary: `annotate` wrote FL=1 /
