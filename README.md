@@ -57,6 +57,24 @@ next_n        = 6
 minimap2 → cs-tagger → sam-tagger
 ```
 
+## Python API
+
+Every subcommand is also callable in-process — the orchestrators, args
+dataclasses, collectors, and `load_config` are re-exported from the top-level
+package (`__all__`).
+
+```python
+from pathlib import Path
+from sam_tagger import AnnotateArgs, run_annotate
+
+run_annotate(AnnotateArgs(
+    input_bam=Path("in.bam"),
+    output_bam=Path("out.bam"),
+    add_fl="FL",
+    config=Path("config.toml"),
+))
+```
+
 ## Development
 
 ```bash
