@@ -7,6 +7,7 @@ zero-fill across every header reference, since FL needs no config).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from loguru import logger
@@ -25,7 +26,7 @@ class StatsCollector:
         config: AllConfigParams,
         all_ref_names: list[str],
     ) -> None:
-        def _ref_keys(need: Path | None, m: dict[str, object] | None) -> list[str] | None:
+        def _ref_keys(need: Path | None, m: Mapping[str, object] | None) -> list[str] | None:
             return sorted(m.keys()) if (need is not None and m is not None) else None
 
         # Sorted reference lists for each stat type

@@ -54,7 +54,7 @@ def _open_reader(input_bam: Path) -> pysam.AlignmentFile:
     return pysam.AlignmentFile("-", "rb") if path == "-" else pysam.AlignmentFile(path, "rb")
 
 
-def _open_writer(output_bam: Path, header: dict) -> pysam.AlignmentFile:
+def _open_writer(output_bam: Path, header: pysam.AlignmentHeader) -> pysam.AlignmentFile:
     """Open a BAM writer preserving the input header; '-' means stdout."""
     path = str(output_bam)
     if path == "-":
