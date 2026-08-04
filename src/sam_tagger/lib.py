@@ -52,17 +52,31 @@ from sam_tagger.stats.tag_stats import StatsCollector
 
 
 def _open_reader(input_bam: Path) -> pysam.AlignmentFile:
-    """Open a BAM reader; '-' means stdin."""
+    """Open an alignment reader; '-' means stdin (BAM). Files auto-detect BAM/CRAM/SAM."""
     path = str(input_bam)
-    return pysam.AlignmentFile("-", "rb") if path == "-" else pysam.AlignmentFile(path, "rb")
-
-
-def _open_writer(output_bam: Path, header: pysam.AlignmentHeader) -> pysam.AlignmentFile:
-    """Open a BAM writer preserving the input header; '-' means stdout."""
-    path = str(output_bam)
     if path == "-":
-        return pysam.AlignmentFile("-", "wb", header=header)
-    return pysam.AlignmentFile(path, "wb", header=header)
+        return pysam.AlignmentFile("-", "rb")  # stdin stays BAM
+    return pysam.AlignmentFile(path)  # auto-detect BAM/CRAM/SAM by content
+
+
+def _open_writer(
+    output: Path,
+    header: pysam.AlignmentHeader,
+    fmt: str = "bam",
+    fasta: Path | None = None,
+) -> pysam.AlignmentFile:
+    """Open a BAM/CRAM/SAM writer preserving the input header; '-' means stdout.
+
+    ``fmt`` selects the container (``bam``/``cram``/``sam``); CRAM requires a
+    ``fasta`` reference to encode against.
+    """
+    dest = str(output)
+    mode = {"bam": "wb", "cram": "wc", "sam": "w"}[fmt]
+    if fmt == "cram":
+        if fasta is None:
+            raise ValueError("CRAM output requires --fasta (a reference to encode against).")
+        return pysam.AlignmentFile(dest, mode, header=header, reference_filename=str(fasta))
+    return pysam.AlignmentFile(dest, mode, header=header)
 
 
 def _header_refs(reader: pysam.AlignmentFile) -> list[tuple[str, int]]:
@@ -150,6 +164,9 @@ def _validate_annotate(args: AnnotateArgs, cfg: AllConfigParams) -> None:
             "extraction, or --*-stats flag."
         )
 
+    if args.output_format == "cram" and args.fasta is None:
+        raise ValueError("annotate: --output-format cram requires --fasta.")
+
     if (args.add_tc is not None or args.tc_stats is not None) and cfg.tc is None:
         raise ValueError(
             "annotate: --add-tc/--tc-stats require a config with tc_primer_start_len "
@@ -198,7 +215,13 @@ def run_annotate(args: AnnotateArgs) -> None:
         left_sc_writer = _maybe_gzip(args.extract_left_softclip_fastq)
         right_sc_writer = _maybe_gzip(args.extract_right_softclip_fastq)
 
-        bam_writer = stack.enter_context(closing(_open_writer(args.output_bam, bam_reader.header)))
+        bam_writer = stack.enter_context(
+            closing(
+                _open_writer(
+                    args.output_bam, bam_reader.header, args.output_format, args.fasta
+                )
+            )
+        )
         stats = StatsCollector(args, cfg, [name for name, _ in header_refs])
         _annotate_loop(
             args, cfg, ref_lengths, bam_reader, bam_writer,

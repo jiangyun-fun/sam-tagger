@@ -20,6 +20,13 @@ With no `--config`, only `total_reads`/`fl`/`fl_pct` are computed.
 `annotate` keeps the tags: `FL MS ME TC AP SS ES DM EE IL DL NB`.
 The redundant `HI`/`HD` (`=IL>0`/`=DL>0`) and `SP` (`=SS+1`) tags were removed.
 
+## Output formats
+
+`annotate` writes **BAM** by default. Pass `--output-format cram|sam` to write
+**CRAM** or **SAM** instead (CRAM requires `--fasta` to encode against). Input
+auto-detects BAM/CRAM/SAM. If reads lack a `cs` tag that a cs-dependent feature
+(TC/EE/AP/error/pileup) needs, a warning fires early in the run.
+
 ## Configuration
 
 Per-reference primer/subread/NB parameters live in a **TOML** file (validated by

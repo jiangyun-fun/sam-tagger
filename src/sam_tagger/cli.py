@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import cyclopts
 from cyclopts import Parameter
@@ -53,7 +53,10 @@ class AnnotateArgs:
     """Arguments for ``sam-tagger annotate``."""
 
     input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM. Use '-' for stdin.")]
-    output_bam: Annotated[Path, Parameter(alias="-o", help="Output BAM. Use '-' for stdout.")]
+    output_bam: Annotated[
+        Path,
+        Parameter(alias="-o", help="Output file; format via --output-format. '-' = stdout."),
+    ]
     config: Annotated[
         Path | None,
         Parameter(
@@ -64,6 +67,10 @@ class AnnotateArgs:
         Path | None,
         Parameter(help="Indexed reference FASTA (samtools faidx). Required for --add-nb."),
     ] = None
+    output_format: Annotated[
+        Literal["bam", "cram", "sam"],
+        Parameter(group="Misc", help="Output format (default bam). 'cram' requires --fasta."),
+    ] = "bam"
 
     # --- Tags (value = the BAM tag name to write) ---
     add_fl: Annotated[
