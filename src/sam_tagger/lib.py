@@ -1,10 +1,11 @@
 """Per-subcommand orchestrators for sam-tagger.
 
-Three independent entry points, each a focused single pass over the BAM:
+Four independent entry points, each a focused single pass over the BAM:
 
 - ``run_annotate``    — BAM -> tagged BAM (+ optional FASTQ + tag stats). Writes BAM.
 - ``run_error_stats`` — BAM -> 7 cs-tag error Parquet files. Read-only.
 - ``run_pileup``      — BAM -> pileup Parquet. Read-only.
+- ``run_qc_summary``  — BAM -> one per-reference QC summary Parquet. Read-only.
 
 Splitting the old single mega-pass into three commands re-reads the BAM when a
 user wants more than one, but each command now has a fixed I/O contract (one
@@ -23,7 +24,7 @@ import pysam
 from loguru import logger
 
 from sam_tagger.bed import parse_bed
-from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs
+from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs, QcSummaryArgs
 from sam_tagger.config import AllConfigParams, load_config
 from sam_tagger.processing import (
     CS_REGEX,
@@ -43,6 +44,7 @@ from sam_tagger.processing import (
 )
 from sam_tagger.stats.error_stats import ErrorStatsCollector, ErrorStatsOutputPaths
 from sam_tagger.stats.pileup_stats import PileupStatsCollector
+from sam_tagger.stats.qc_summary import QcSummaryCollector
 from sam_tagger.stats.tag_stats import StatsCollector
 
 # --- shared helpers ---
@@ -407,3 +409,72 @@ def run_pileup(args: PileupArgs) -> None:
             faidx_reader.close()
 
     logger.info("pileup complete. Output written to {}", args.output)
+
+
+# ===========================================================================
+# qc-summary
+# ===========================================================================
+
+
+def run_qc_summary(args: QcSummaryArgs) -> None:
+    """Single pass: emit one per-reference QC summary Parquet row (read-only).
+
+    Joins FL (always, header length), TC + per-base error (need cs + config), and
+    AP (need config) into one row per BAM-header reference. With no ``--config``,
+    only ``total_reads``/``fl``/``fl_pct`` are populated.
+    """
+    bam_reader = _open_reader(args.input_bam)
+    try:
+        header_refs = _header_refs(bam_reader)
+        ref_lengths = dict(header_refs)
+        ref_names = [name for name, _ in header_refs]
+        cfg = load_config(args.config, ref_lengths)
+        error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
+        qc = QcSummaryCollector(ref_names)
+
+        logger.info("Processing BAM records for QC summary...")
+        record_count = 0
+        for record in bam_reader.fetch(until_eof=True):
+            if record.is_unmapped:
+                continue
+            record_count += 1
+            ref_name = bam_reader.get_reference_name(record.reference_id)
+            cigar = record.cigartuples or []
+            qc.tally_total(ref_name)
+            if sum_match_del_skip_cigar(cigar) == ref_lengths[ref_name]:
+                qc.tally_fl(ref_name)
+
+            cs_tag = record.get_tag("cs") if record.has_tag("cs") else None
+            if cs_tag is not None:
+                parsed_ops = parse_cs_tag(str(cs_tag))
+                if cfg.tc is not None:
+                    tc_params = cfg.tc.get(ref_name)
+                    if tc_params is not None and is_on_target_parsed(
+                        record.reference_start,
+                        parsed_ops,
+                        tc_params.primer_start_len,
+                        tc_params.primer_end_len,
+                        tc_params.seq_len,
+                    ):
+                        qc.tally_on_target(ref_name)
+                if error_collector is not None:
+                    error_collector.tally_from_parsed(
+                        parsed_ops, record.reference_start, ref_name, record.query_name or ""
+                    )
+
+            if cfg.ap is not None:
+                ap_params = cfg.ap.get(ref_name)
+                if ap_params is not None:
+                    read_seq = record.query_sequence
+                    if read_seq:
+                        status = check_amplicon_primers(
+                            cigar, read_seq.encode(), record.reference_start, ap_params
+                        )
+                        qc.tally_ap(ref_name, status)
+
+        logger.info("Processed {} records.", record_count)
+        qc.write_results(args.output, error_collector)
+    finally:
+        bam_reader.close()
+
+    logger.info("qc-summary complete. Output written to {}", args.output)

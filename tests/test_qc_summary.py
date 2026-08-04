@@ -1,0 +1,217 @@
+"""Tests for the ``qc-summary`` subcommand (per-reference QC summary Parquet)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import polars as pl
+import pytest
+from _helpers import setup_env
+
+from sam_tagger.cli import ErrorStatsArgs, QcSummaryArgs, app
+from sam_tagger.lib import run_error_stats, run_qc_summary
+
+Q = "I"  # Phred 40
+HDR_3 = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:seq1\tLN:28\n@SQ\tSN:seq2\tLN:26\n@SQ\tSN:seq3\tLN:30"
+HDR_1_28 = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:seq1\tLN:28"
+
+
+def _read_qc(path: Path) -> dict[str, dict]:
+    """seq_name -> full row (as a dict)."""
+    df = pl.read_parquet(path)
+    return {r["seq_name"]: r for r in df.iter_rows(named=True)}
+
+
+def _read_per_base(path: Path) -> dict[str, dict[str, int]]:
+    """seq_name -> {total/insertion/deletion/substitution: count} from error-stats per_base."""
+    out: dict[str, dict[str, int]] = {}
+    for r in pl.read_parquet(path).iter_rows(named=True):
+        out.setdefault(r["seq_name"], {})[r["type"]] = int(r["count"])
+    return out
+
+
+# ---------------------------------------------------------------------------
+# 1. multi-ref, tc + error features, incl. a zero-read ref (seq3)
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_multi_ref(tmp_path: Path) -> None:
+    cfg = (
+        "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+        "error_primer_start_len = 5\nerror_primer_end_len = 5\n"
+        "[seq2]\ntc_primer_start_len = 5\ntc_primer_end_len = 5\n"
+        "error_primer_start_len = 5\nerror_primer_end_len = 5\n"
+    )
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
+        f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::10*at:13\n"
+        f"r3\t0\tseq2\t1\t60\t26M\t*\t0\t0\t{'AC' * 13}\t{Q * 26}\tcs:Z::26\n"
+    )
+    setup = setup_env(tmp_path, cfg, HDR_3, sam)
+    assert setup.config_path is not None
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out, config=setup.config_path))
+
+    qc = _read_qc(out)
+    assert set(qc) == {"seq1", "seq2", "seq3"}  # every header contig, incl. zero-read seq3
+
+    # seq1: 2 reads, 1 full-length (r1), 1 on-target (r1), 1 mismatch (r2), aligned 28+24.
+    assert qc["seq1"]["total_reads"] == 2
+    assert qc["seq1"]["fl"] == 1
+    assert qc["seq1"]["fl_pct"] == pytest.approx(0.5)
+    assert qc["seq1"]["on_target"] == 1
+    assert qc["seq1"]["on_target_pct"] == pytest.approx(0.5)
+    assert qc["seq1"]["mismatches"] == 1
+    assert qc["seq1"]["insertions"] == 0
+    assert qc["seq1"]["deletions"] == 0
+    assert qc["seq1"]["aligned_bases"] == 52
+    assert qc["seq1"]["error_rate"] == pytest.approx(1 / 52)
+    # no ap config -> all ap buckets 0
+    assert qc["seq1"]["ap_Both"] == qc["seq1"]["ap_Neither"] == 0
+
+    # seq2: 1 perfect read.
+    assert qc["seq2"]["total_reads"] == 1
+    assert qc["seq2"]["fl"] == 1
+    assert qc["seq2"]["fl_pct"] == pytest.approx(1.0)
+    assert qc["seq2"]["on_target"] == 1
+    assert qc["seq2"]["aligned_bases"] == 26
+    assert qc["seq2"]["error_rate"] == pytest.approx(0.0)
+
+    # seq3: zero reads -> row of zeros, no division-by-zero.
+    assert qc["seq3"]["total_reads"] == 0
+    assert qc["seq3"]["fl_pct"] == 0.0
+    assert qc["seq3"]["error_rate"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 2. amplicon-primer (AP) statuses — all four buckets
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_ap_all_statuses(tmp_path: Path) -> None:
+    cfg = (
+        '[seq1]\namp_primer_start_len = 8\namp_primer_end_len = 8\n'
+        'amp_primer_start_seq = "ACGTACGT"\namp_primer_end_seq = "ACGTACGT"\n'
+    )
+    sam = (
+        f"both\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"neither\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'T' * 28}\t{Q * 28}\n"
+        f"start\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGTACGT' + 'T' * 20}\t{Q * 28}\n"
+        f"end\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'T' * 20 + 'ACGTACGT'}\t{Q * 28}\n"
+    )
+    setup = setup_env(tmp_path, cfg, HDR_1_28, sam)
+    assert setup.config_path is not None
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out, config=setup.config_path))
+
+    qc = _read_qc(out)
+    row = qc["seq1"]
+    assert row["ap_Both"] == 1
+    assert row["ap_StartOnly"] == 1
+    assert row["ap_EndOnly"] == 1
+    assert row["ap_Neither"] == 1
+    assert row["total_reads"] == 4
+    # every read is a full 28M -> FL on all four
+    assert row["fl"] == 4
+
+
+# ---------------------------------------------------------------------------
+# 3. no config -> only FL + total reads populated
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_no_config(tmp_path: Path) -> None:
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
+        f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::24\n"
+    )
+    setup = setup_env(tmp_path, None, HDR_1_28, sam)
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out))  # no --config
+
+    row = _read_qc(out)["seq1"]
+    assert row["total_reads"] == 2
+    assert row["fl"] == 1  # only the 28M read
+    assert row["fl_pct"] == pytest.approx(0.5)
+    # cs-dependent / config-dependent columns all zero
+    assert row["on_target"] == 0
+    assert row["ap_Both"] == 0
+    assert row["mismatches"] == 0
+    assert row["aligned_bases"] == 0
+    assert row["error_rate"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 4. error columns cross-check against error-stats per_base on the same BAM
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
+    cfg = (
+        "[seq1]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
+        "[seq2]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
+    )
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
+        f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::10*at:13\n"
+        f"r3\t0\tseq2\t1\t60\t26M\t*\t0\t0\t{'AC' * 13}\t{Q * 26}\tcs:Z::26\n"
+    )
+    setup = setup_env(tmp_path, cfg, HDR_3, sam)
+    assert setup.config_path is not None
+
+    qc_out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=qc_out, config=setup.config_path))
+    qc = _read_qc(qc_out)
+
+    pre = tmp_path / "err"
+    run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=pre))
+    per_base = _read_per_base(tmp_path / "err.per_base.parquet")
+
+    for ref in ("seq1", "seq2"):
+        pb = per_base[ref]
+        row = qc[ref]
+        assert row["aligned_bases"] == pb["total"]
+        assert row["mismatches"] == pb["substitution"]
+        assert row["insertions"] == pb["insertion"]
+        assert row["deletions"] == pb["deletion"]
+    # seq3 has no error config and no reads -> absent from error-stats, zeros in qc-summary
+    assert qc["seq3"]["aligned_bases"] == 0
+
+
+# ---------------------------------------------------------------------------
+# 5. empty BAM (no records) -> one zero row per header contig
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_empty_bam(tmp_path: Path) -> None:
+    setup = setup_env(tmp_path, None, HDR_1_28, "")  # no records
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out))
+
+    df = pl.read_parquet(out)
+    assert df.height == 1
+    row = df.row(0, named=True)
+    assert row["seq_name"] == "seq1"
+    assert row["total_reads"] == 0
+    assert row["fl_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 6. CLI dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_cli(tmp_path: Path) -> None:
+    cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+    sam = f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
+    setup = setup_env(tmp_path, cfg, HDR_1_28, sam)
+    assert setup.config_path is not None
+    out = tmp_path / "qc.parquet"
+    with pytest.raises(SystemExit) as ei:
+        app([
+            "qc-summary", "-i", str(setup.input_bam), "-o", str(out),
+            "--config", str(setup.config_path),
+        ])
+    assert ei.value.code in (0, None)
+    assert out.exists()
+    assert pl.read_parquet(out)["total_reads"].to_list() == [1]

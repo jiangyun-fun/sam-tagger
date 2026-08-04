@@ -139,11 +139,23 @@ class ErrorStatsCollector:
     def __init__(
         self,
         error_params_map: dict[str, ErrorParams],
-        paths: ErrorStatsOutputPaths,
+        paths: ErrorStatsOutputPaths | None = None,
     ) -> None:
         self._stats_by_ref: dict[str, _PerRefErrorStats] = {}
         self._error_params_map = error_params_map
         self._paths = paths
+
+    def per_base_counts(self, ref_name: str) -> tuple[int, int, int, int] | None:
+        """Return ``(aligned_bases, mismatches, insertions, deletions)`` for a ref.
+
+        ``None`` means no cs-carrying read mapped to this reference. Lets a caller
+        (e.g. ``qc-summary``) reuse the error tally without writing the 7-file output.
+        """
+        ref_stats = self._stats_by_ref.get(ref_name)
+        if ref_stats is None:
+            return None
+        s = ref_stats.per_base_summary
+        return (s.total_aligned_bases, s.mismatches, s.insertions, s.deletions)
 
     @staticmethod
     def _get_or_create_pos(
@@ -255,18 +267,24 @@ class ErrorStatsCollector:
             ref_stats.per_read_summary.reads_with_mismatch += 1
 
     def write_results(self) -> None:
+        if self._paths is None:
+            raise ValueError(
+                "ErrorStatsCollector.write_results requires output paths "
+                "(construct with paths=...)."
+            )
         logger.info("Writing all error statistics...")
-        self._write_error_stats()
-        self._write_mismatch_stats()
-        self._write_insertion_stats()
-        self._write_deletion_stats()
-        self._write_per_read_stats()
-        self._write_per_base_stats()
-        self._write_single_deletion_stats()
+        paths = self._paths  # narrowed to ErrorStatsOutputPaths by the guard above
+        self._write_error_stats(paths)
+        self._write_mismatch_stats(paths)
+        self._write_insertion_stats(paths)
+        self._write_deletion_stats(paths)
+        self._write_per_read_stats(paths)
+        self._write_per_base_stats(paths)
+        self._write_single_deletion_stats(paths)
         logger.info("All error statistics successfully written.")
 
-    def _write_error_stats(self) -> None:
-        logger.info("Writing positional error statistics to {}", self._paths.error)
+    def _write_error_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing positional error statistics to {}", paths.error)
         pos_stats = PositionalErrorStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -276,10 +294,10 @@ class ErrorStatsCollector:
             for i in range(1, seq_len + 1):
                 counts = ref_stats.positional_errors.get(i, _PositionalErrorCounts())
                 pos_stats.add(seq_name, i, counts.insertions, counts.deletions, counts.mismatches)
-        pos_stats.write_parquet(self._paths.error)
+        pos_stats.write_parquet(paths.error)
 
-    def _write_single_deletion_stats(self) -> None:
-        logger.info("Writing single deletion statistics to {}", self._paths.single_deletion)
+    def _write_single_deletion_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing single deletion statistics to {}", paths.single_deletion)
         single_del_stats = SingleDeletionStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -289,10 +307,10 @@ class ErrorStatsCollector:
             for i in range(1, seq_len + 1):
                 counts = ref_stats.positional_errors.get(i, _PositionalErrorCounts())
                 single_del_stats.add(seq_name, i, counts.deletions, counts.single_deletions)
-        single_del_stats.write_parquet(self._paths.single_deletion)
+        single_del_stats.write_parquet(paths.single_deletion)
 
-    def _write_mismatch_stats(self) -> None:
-        logger.info("Writing mismatch matrix to {}", self._paths.mismatch)
+    def _write_mismatch_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing mismatch matrix to {}", paths.mismatch)
         mismatch_stats = MismatchMatrixStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -310,10 +328,10 @@ class ErrorStatsCollector:
                 c = ref_stats.mismatch_matrix[row_idx][col_map[2]]
                 g = ref_stats.mismatch_matrix[row_idx][col_map[3]]
                 mismatch_stats.add(seq_name, chr(base_row).upper(), a, t, c, g)
-        mismatch_stats.write_parquet(self._paths.mismatch)
+        mismatch_stats.write_parquet(paths.mismatch)
 
-    def _write_insertion_stats(self) -> None:
-        logger.info("Writing insertion summary to {}", self._paths.insertion)
+    def _write_insertion_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing insertion summary to {}", paths.insertion)
         typed = TypedStats("insertion")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -321,10 +339,10 @@ class ErrorStatsCollector:
             ref_stats = self._stats_by_ref.get(seq_name, default)
             for i, base in enumerate(_BASE_ORDER):
                 typed.add(seq_name, base, ref_stats.insertion_summary[i])
-        typed.write_parquet(self._paths.insertion)
+        typed.write_parquet(paths.insertion)
 
-    def _write_deletion_stats(self) -> None:
-        logger.info("Writing deletion summary to {}", self._paths.deletion)
+    def _write_deletion_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing deletion summary to {}", paths.deletion)
         typed = TypedStats("deletion")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -332,10 +350,10 @@ class ErrorStatsCollector:
             ref_stats = self._stats_by_ref.get(seq_name, default)
             for i, base in enumerate(_BASE_ORDER):
                 typed.add(seq_name, base, ref_stats.deletion_summary[i])
-        typed.write_parquet(self._paths.deletion)
+        typed.write_parquet(paths.deletion)
 
-    def _write_per_read_stats(self) -> None:
-        logger.info("Writing per_read statistics to {}", self._paths.per_read)
+    def _write_per_read_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing per_read statistics to {}", paths.per_read)
         typed = TypedStats("per_read")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -345,10 +363,10 @@ class ErrorStatsCollector:
             typed.add(seq_name, "insertion", summary.reads_with_insertion)
             typed.add(seq_name, "deletion", summary.reads_with_deletion)
             typed.add(seq_name, "substitution", summary.reads_with_mismatch)
-        typed.write_parquet(self._paths.per_read)
+        typed.write_parquet(paths.per_read)
 
-    def _write_per_base_stats(self) -> None:
-        logger.info("Writing per_base statistics to {}", self._paths.per_base)
+    def _write_per_base_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        logger.info("Writing per_base statistics to {}", paths.per_base)
         typed = TypedStats("per_base")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
@@ -358,4 +376,4 @@ class ErrorStatsCollector:
             typed.add(seq_name, "insertion", summary.insertions)
             typed.add(seq_name, "deletion", summary.deletions)
             typed.add(seq_name, "substitution", summary.mismatches)
-        typed.write_parquet(self._paths.per_base)
+        typed.write_parquet(paths.per_base)

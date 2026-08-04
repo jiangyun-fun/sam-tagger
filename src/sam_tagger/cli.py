@@ -1,8 +1,9 @@
-"""CLI for sam-tagger: three focused subcommands.
+"""CLI for sam-tagger: four focused subcommands.
 
 ``annotate``     — BAM → tagged BAM (+ optional FASTQ, optional tag stats).
 ``error-stats``  — BAM → 7-file cs-tag error analysis (read-only).
 ``pileup``       — BAM → per-position pileup statistics (read-only).
+``qc-summary``   — BAM → one per-reference QC summary Parquet (FL/TC/AP/error).
 
 Each subcommand binds directly to a dataclass (``AnnotateArgs`` /
 ``ErrorStatsArgs`` / ``PileupArgs``) via ``Annotated[Args, Parameter(name="")]``,
@@ -246,3 +247,39 @@ def pileup(args: Annotated[PileupArgs, Parameter(name="")]) -> None:
     from sam_tagger.lib import run_pileup
 
     run_pileup(args)
+
+
+# ===========================================================================
+# qc-summary
+# ===========================================================================
+
+
+@dataclass
+class QcSummaryArgs:
+    """Arguments for ``sam-tagger qc-summary``."""
+
+    input_bam: Annotated[
+        Path, Parameter(alias="-i", help="Input BAM (must carry cs tags for TC/error).")
+    ]
+    output: Annotated[
+        Path,
+        Parameter(alias="-o", help="Output per-reference QC summary Parquet."),
+    ]
+    config: Annotated[
+        Path | None,
+        Parameter(
+            help="TOML config (tc/amp/error primer params). Omit to compute FL + read counts only.",
+        ),
+    ] = None
+    verbose: Annotated[
+        int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")
+    ] = 0
+
+
+@app.command
+def qc_summary(args: Annotated[QcSummaryArgs, Parameter(name="")]) -> None:
+    """Emit one Parquet row per reference: FL, TC, AP, and per-base error rate (read-only)."""
+    _configure_logging(args.verbose)
+    from sam_tagger.lib import run_qc_summary
+
+    run_qc_summary(args)

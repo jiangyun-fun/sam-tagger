@@ -1,7 +1,7 @@
 # sam-tagger
 
 A SAM/BAM tagger and amplicon-sequencing QC statistics generator. Clean redesign
-of `bam_tagger` / `py-bam-tagger`, split into three focused subcommands with
+of `bam_tagger` / `py-bam-tagger`, split into four focused subcommands with
 fixed I/O contracts (so each maps cleanly onto a `snakeforge-templates` rule).
 
 ## Subcommands
@@ -11,6 +11,11 @@ fixed I/O contracts (so each maps cleanly onto a `snakeforge-templates` rule).
 | `annotate`    | BAM (+ optional FASTA, config) | BAM, optional `.fastq.gz`, optional tag `.parquet`  |
 | `error-stats` | BAM (+ config)                 | 7 error `.parquet` files                            |
 | `pileup`      | BAM (+ optional FASTA, BED)    | 1 pileup `.parquet`                                 |
+| `qc-summary`  | BAM (+ optional config)        | 1 per-reference QC `.parquet`                       |
+
+`qc-summary` emits one row per reference joining FL, TC, AP and per-base error
+counts/rate into a single table — a one-pass digest of the per-feature stats.
+With no `--config`, only `total_reads`/`fl`/`fl_pct` are computed.
 
 `annotate` keeps the tags: `FL MS ME TC AP SS ES DM EE IL DL NB`.
 The redundant `HI`/`HD` (`=IL>0`/`=DL>0`) and `SP` (`=SS+1`) tags were removed.
