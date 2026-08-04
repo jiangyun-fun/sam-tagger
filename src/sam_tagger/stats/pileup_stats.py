@@ -165,6 +165,30 @@ class PileupStatsCollector:
         # Capture intervals for this chromosome
         chr_intervals = self._intervals.get(ref_name) if self._intervals else None
 
+        # Fetch this read's reference span ONCE and index it in-memory, instead of
+        # calling faidx.fetch() per base (the prior bottleneck — ~64% of pileup
+        # time). Anchors at the very first op (cs not starting with ':') can fall
+        # at record_pos-1 and miss the cache; refs shorter than the alignment also
+        # miss at the tail. Both fall back to the original per-base fetch, so
+        # output is identical.
+        ref_span: str | None = None
+        if self._faidx_reader is not None and read_end > record_pos:
+            try:
+                ref_span = self._faidx_reader.fetch(ref_name, record_pos, read_end).upper()
+            except Exception as e:
+                logger.warning(
+                    "Failed to fetch ref span {}:{}-{} — {}",
+                    ref_name, record_pos, read_end, e,
+                )
+                ref_span = None
+
+        def _base_at(pos_0based: int) -> str:
+            if ref_span is not None:
+                idx = pos_0based - record_pos
+                if 0 <= idx < len(ref_span):
+                    return ref_span[idx]
+            return self._fetch_ref_base(ref_name, pos_0based)
+
         ref_stats = self._stats_by_ref_pos.setdefault(ref_name, {})
 
         # 1-BASED cursor
@@ -187,7 +211,7 @@ class PileupStatsCollector:
                     ):
                         continue
                     if passes_quality_filter(read_pos + i):
-                        ref_base = self._fetch_ref_base(ref_name, abs_ref_pos)
+                        ref_base = _base_at(abs_ref_pos)
                         pos_stats = ref_stats.get(abs_ref_pos)
                         if pos_stats is None:
                             pos_stats = _PositionPileup()
@@ -225,7 +249,7 @@ class PileupStatsCollector:
                         ref_stats[abs_ref_pos] = pos_stats
 
                     # Remove REF count
-                    ref_key = self._fetch_ref_base(ref_name, abs_ref_pos)
+                    ref_key = _base_at(abs_ref_pos)
                     counts = pos_stats.allele_counts.get(ref_key)
                     if counts is not None:
                         if is_forward and counts[0] > 0:
@@ -257,7 +281,7 @@ class PileupStatsCollector:
                         ref_stats[abs_ref_pos] = pos_stats
 
                     # Remove REF count
-                    ref_key = self._fetch_ref_base(ref_name, abs_ref_pos)
+                    ref_key = _base_at(abs_ref_pos)
                     counts = pos_stats.allele_counts.get(ref_key)
                     if counts is not None:
                         if is_forward and counts[0] > 0:
