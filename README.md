@@ -9,6 +9,9 @@ A SAM/BAM tagger and amplicon-sequencing QC statistics generator. Clean redesign
 of `bam_tagger` / `py-bam-tagger`, split into four focused subcommands with
 fixed I/O contracts (so each maps cleanly onto a `snakeforge-templates` rule).
 
+📖 For the full flag reference and copy-paste examples, see
+[`docs/usage.qmd`](docs/usage.qmd).
+
 ## Subcommands
 
 | Command       | Reads                          | Writes                                              |

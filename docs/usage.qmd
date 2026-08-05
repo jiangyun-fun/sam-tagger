@@ -1,0 +1,290 @@
+---
+title: "sam-tagger usage"
+author: "Yun Jiang"
+date: "2026-08-05"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+    toc-depth: 3
+    code-fold: false
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Overview
+
+`sam-tagger` is a SAM/BAM tagger and amplicon-sequencing QC statistics generator.
+It reads the minimap2 `cs` (alignment comparison) tag and produces, in one pass
+per command, either a tagged BAM or Parquet statistics. It is the clean redesign
+of `bam_tagger` / `py-bam-tagger`, split into **four focused subcommands** with
+fixed I/O contracts.
+
+In a typical amplicon pipeline it sits right after `cs`-tag generation:
+
+```
+minimap2 (--cs)  ──▶  cs-tagger  ──▶  sam-tagger
+```
+
+## The four subcommands
+
+| Command       | Positional arguments        | Writes                                              | Read-only? |
+|---------------|-----------------------------|-----------------------------------------------------|------------|
+| `annotate`    | `INPUT-BAM OUTPUT-BAM`      | tagged BAM (or CRAM/SAM), optional FASTQ + Parquet  | no         |
+| `error-stats` | `INPUT-BAM CONFIG`          | 7 error Parquet files                               | yes        |
+| `pileup`      | `INPUT-BAM OUTPUT`          | 1 pileup Parquet                                    | yes        |
+| `qc-summary`  | `INPUT-BAM OUTPUT`          | 1 per-reference QC Parquet                          | yes        |
+
+Every subcommand also accepts `-i/--input-bam` (and `-o/--output` where there is
+an output) instead of positionals, `-v` (repeat for INFO/DEBUG/TRACE), and `-h`.
+
+# Installation
+
+`pysam` is provided through **conda-forge / bioconda** (a reliable htslib build),
+not PyPI, so install with conda/mamba/pixi rather than pip:
+
+```bash
+# conda / mamba
+conda install -c conda-forge -c bioconda sam-tagger
+
+# pixi (in a project workspace)
+pixi add -c conda-forge -c bioconda sam-tagger
+```
+
+Python ≥ 3.13 is required. To run from source instead:
+
+```bash
+pixi install            # solves the env from pixi.toml
+pixi run sam-tagger --version
+```
+
+# Prerequisite: the `cs` tag
+
+Several features read the `cs` tag (added by `minimap2 --cs` or `cs-tagger`):
+
+- **cs-dependent**: `--add-tc`, `--add-ee`, and the whole `error-stats`,
+  `pileup`, and `qc-summary` (TC/error columns) commands.
+- **cs-free**: `FL` and the CIGAR-derived tags `MS ME SS ES DM IL DL`.
+
+If you enable a cs-dependent feature on a BAM whose reads lack `cs`, `sam-tagger`
+prints an early warning (and a final summary) but continues — those tags/columns
+will simply be empty.
+
+# annotate
+
+`annotate` is the only command that writes a BAM. It adds any subset of the
+twelve tags, optionally extracts FASTQ, and optionally emits per-tag statistics
+Parquet — all in a single pass.
+
+```text
+sam-tagger annotate INPUT-BAM OUTPUT-BAM [ARGS]
+```
+
+## Tags
+
+The `--add-*` flags each take a **value: the BAM tag name to write**. By
+convention the value matches the flag, but you can rename it if needed.
+
+| Flag        | Value | Meaning                                              | Needs                |
+|-------------|-------|------------------------------------------------------|----------------------|
+| `--add-fl`  | `FL`  | `1` if the read spans the whole reference            | —                    |
+| `--add-ms`  | `MS`  | Match start (1-based read position)                  | —                    |
+| `--add-me`  | `ME`  | Match end (1-based read position)                    | —                    |
+| `--add-tc`  | `TC`  | On-target (`OnTarget`) via cs, no errors in primers  | `--config`           |
+| `--add-ap`  | `AP`  | Amplicon primer: `Both`/`StartOnly`/`EndOnly`/`Neither` | `--config`        |
+| `--add-ss`  | `SS`  | Start (5′) soft-clip length                           | —                    |
+| `--add-es`  | `ES`  | End (3′) soft-clip length                             | —                    |
+| `--add-dm`  | `DM`  | Sum of M+D CIGAR ops (aligned ref length)            | —                    |
+| `--add-ee`  | `EE`  | Error-event count from cs                            | cs                   |
+| `--add-il`  | `IL`  | Longest insertion length in CIGAR                    | —                    |
+| `--add-dl`  | `DL`  | Longest deletion length in CIGAR                     | —                    |
+| `--add-nb`  | `NB`  | Next N reference bases after alignment end           | `--config` + `--fasta` |
+
+The redundant legacy tags `HI`/`HD` (=IL>0/=DL>0) and `SP` (=SS+1) were removed.
+
+## Extraction and statistics
+
+| Flag                              | Takes      | Purpose                              |
+|-----------------------------------|------------|--------------------------------------|
+| `--extract-sub-reads-fastq`       | output path| Per-ref sub-reads to gzipped FASTQ   |
+| `--extract-left-softclip-fastq`   | output path| 5′ soft-clips to gzipped FASTQ       |
+| `--extract-right-softclip-fastq`  | output path| 3′ soft-clips to gzipped FASTQ       |
+| `--fl-stats` / `--tc-stats` / `--ap-stats` / `--nb-stats` | output path | Per-tag statistics Parquet |
+
+## Output format
+
+`--output-format bam|cram|sam` (default `bam`). `cram` requires `--fasta` to
+encode against. Input auto-detects BAM/CRAM/SAM. Use `-` for stdin/stdout.
+
+## Examples
+
+```bash
+# CIGAR-only tags, no config needed
+sam-tagger annotate aln.cs.bam out.bam --add-fl FL --add-ms MS --add-me ME
+
+# Primer-dependent tags require a config
+sam-tagger annotate aln.cs.bam out.bam \
+    --config primers.toml \
+    --add-fl FL --add-tc TC --add-ap AP --add-ee EE
+
+# Write CRAM (--fasta mandatory), and add NB (also needs config + fasta)
+sam-tagger annotate aln.cs.bam out.cram --output-format cram \
+    --fasta ref.fa --config primers.toml \
+    --add-fl FL --add-tc TC --add-ap AP --add-nb NB
+
+# Tag the BAM and emit FL + AP statistics alongside
+sam-tagger annotate aln.cs.bam out.bam \
+    --config primers.toml \
+    --add-fl FL --add-ap AP \
+    --fl-stats fl.parquet --ap-stats ap.parquet
+
+# Extract sub-reads (config supplies subread_start/subread_end)
+sam-tagger annotate aln.cs.bam out.bam \
+    --config primers.toml --add-fl FL \
+    --extract-sub-reads-fastq subreads.fq.gz
+```
+
+# error-stats
+
+```text
+sam-tagger error-stats INPUT-BAM CONFIG [ARGS]
+```
+
+Read-only. Produces **seven** cs-tag error-statistics Parquet files. Give either
+a `--prefix` (writes `{prefix}.error.parquet`, `{prefix}.mismatch.parquet`, …) or
+the seven individual `--*-out` paths — the two are mutually exclusive.
+
+| Output (`--prefix` writes `{p}.*`) | `--*-out` flag        | Contents                  |
+|-----------------------------------|-----------------------|---------------------------|
+| `{p}.error.parquet`               | `--error-out`         | Positional error counts   |
+| `{p}.mismatch.parquet`            | `--mismatch-out`      | Mismatch matrix           |
+| `{p}.insertion.parquet`           | `--insertion-out`     | Insertion summary         |
+| `{p}.deletion.parquet`            | `--deletion-out`      | Deletion summary          |
+| `{p}.per_read.parquet`            | `--per-read-out`      | Per-read error            |
+| `{p}.per_base.parquet`            | `--per-base-out`      | Per-base error            |
+| `{p}.single_deletion.parquet`     | `--single-deletion-out` | Single-deletion counts  |
+
+```bash
+# prefix form (all 7 files at once)
+sam-tagger error-stats aln.cs.bam primers.toml --prefix run1
+
+# explicit-output form
+sam-tagger error-stats aln.cs.bam primers.toml \
+    --error-out err.parquet --mismatch-out mm.parquet \
+    --insertion-out ins.parquet --deletion-out del.parquet \
+    --per-read-out pr.parquet --per-base-out pb.parquet \
+    --single-deletion-out sd.parquet
+```
+
+# pileup
+
+```text
+sam-tagger pileup INPUT-BAM OUTPUT [ARGS]
+```
+
+Read-only, bcftools-mpileup-like per-position statistics. Output columns:
+`seq_name, pos, ref, alt, dp, adf, adr, ad, af`.
+
+| Flag              | Purpose                                                  |
+|-------------------|----------------------------------------------------------|
+| `--fasta`         | Indexed reference FASTA for `ref` bases (else `ref='.'`) |
+| `--intervals`     | BED restricting which positions are reported             |
+| `--min-base-qual` | Min base quality (Phred), default `20`                   |
+
+```bash
+sam-tagger pileup aln.cs.bam pileup.parquet --fasta ref.fa
+sam-tagger pileup aln.cs.bam pileup.parquet --intervals targets.bed --min-base-qual 15
+```
+
+# qc-summary
+
+```text
+sam-tagger qc-summary INPUT-BAM OUTPUT [ARGS]
+```
+
+Read-only. One Parquet row per BAM-header reference, joining FL, TC, AP and
+per-base error counts/rate into a single digest. Columns: `seq_name, total_reads,
+fl, fl_pct, on_target, on_target_pct, ap_Both, ap_StartOnly, ap_EndOnly,
+ap_Neither, mismatches, insertions, deletions, aligned_bases, error_rate`.
+Zero-read references appear with zeros.
+
+- **With `--config`** — all columns populate (TC/AP/error need primer params).
+- **Without `--config`** — only `total_reads`, `fl`, `fl_pct` are computed.
+
+```bash
+# full summary
+sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.toml
+
+# FL + read counts only (no primer config)
+sam-tagger qc-summary aln.cs.bam qc.parquet
+```
+
+# Configuration (TOML)
+
+Per-reference primer/sub-read/NB parameters live in one TOML file, validated by
+pydantic. Table names must match a `@SQ SN` in the BAM header (because
+`seq_name`/`seq_len` come from the header). Unknown keys are rejected as errors.
+
+```toml
+# primers.toml — one [ref-name] table per reference.
+[seq1]
+tc_primer_start_len    = 8      # --add-tc  / --tc-stats
+tc_primer_end_len      = 8
+amp_primer_start_len   = 9      # --add-ap  / --ap-stats
+amp_primer_end_len     = 7
+amp_primer_start_seq   = "GGGGGGGGG"
+amp_primer_end_seq     = "CCCCCCC"
+error_primer_start_len = 5      # error-stats
+error_primer_end_len   = 5
+subread_start          = 12     # --extract-sub-reads-fastq
+subread_end            = 21
+next_n                 = 6      # --add-nb / --nb-stats (needs --fasta)
+
+# Ref names with non-[A-Za-z0-9_-] characters must be quoted:
+["150-1-P"]
+error_primer_start_len = 10
+error_primer_end_len   = 10
+```
+
+A complete example ships at [`config.example.toml`](../config.example.toml).
+
+| Config field                                              | Drives                                  |
+|-----------------------------------------------------------|-----------------------------------------|
+| `tc_primer_start_len` / `tc_primer_end_len`               | `--add-tc`, `--tc-stats`                |
+| `amp_primer_*_len`, `amp_primer_*_seq`                    | `--add-ap`, `--ap-stats`                |
+| `error_primer_start_len` / `error_primer_end_len`         | `error-stats`                           |
+| `subread_start` / `subread_end`                           | `--extract-sub-reads-fastq`             |
+| `next_n`                                                  | `--add-nb`, `--nb-stats` (needs `--fasta`) |
+
+`FL` and the CIGAR-only tags need **no** config.
+
+# Python API
+
+Every subcommand is also callable in-process. The four orchestrators, their args
+dataclasses, the collectors, and `load_config` are re-exported via `__all__`:
+
+```python
+from pathlib import Path
+from sam_tagger import AnnotateArgs, run_annotate, load_config
+
+run_annotate(AnnotateArgs(
+    input_bam=Path("aln.cs.bam"),
+    output_bam=Path("out.bam"),
+    add_fl="FL",
+    add_tc="TC",
+    config=Path("primers.toml"),
+))
+```
+
+The args dataclass is the single source of truth — the same `AnnotateArgs` /
+`ErrorStatsArgs` / `PileupArgs` / `QcSummaryArgs` back both the CLI flags and the
+Python call, so nothing drifts between the two surfaces.
+
+# Help and verbosity
+
+```bash
+sam-tagger --help                 # list subcommands
+sam-tagger annotate --help        # full flag reference for one command
+sam-tagger -v annotate in.bam out.bam --add-fl FL   # -v INFO, -vv DEBUG, -vvv TRACE
+```
