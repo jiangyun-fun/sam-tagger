@@ -12,7 +12,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # pysam comes from conda-forge/bioconda, so CI solves the env via pixi
       # (pysam is intentionally not a PyPI dep). pixi.lock is committed, so the
       # solve is fixed; ubuntu-latest matches the only declared platform (linux-64).
