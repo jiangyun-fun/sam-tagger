@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sam-tagger"
-version = "3.0.0"
+version = "0.1.0"
 description = "SAM/BAM tagger and amplicon QC stat generator (annotate / error-stats / pileup subcommands)"
 readme = "README.md"
 requires-python = ">=3.13"
