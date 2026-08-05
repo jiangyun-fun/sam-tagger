@@ -1,6 +1,5 @@
-# pixi
+# pixi — the lockfile IS committed for reproducible CI; only the local env is ignored.
 .pixi/
-pixi.lock
 
 # python
 __pycache__/
