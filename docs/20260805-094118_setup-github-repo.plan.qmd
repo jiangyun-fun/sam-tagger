@@ -14,8 +14,9 @@ include-in-header:
 # Objective
 
 Apply production hygiene to `jiangyun-fun/sam-tagger` (license, CI, release
-automation, dependency bumps, repo settings, topics) and cut release **v3.0.0**
-with source/wheel artifacts — the inputs the user's later conda recipe consumes.
+automation, dependency bumps, repo settings, topics) and cut the initial
+release **v0.1.0** with source/wheel artifacts — the inputs the user's later
+conda recipe consumes.
 
 # Starting state (verified)
 
@@ -26,24 +27,24 @@ with source/wheel artifacts — the inputs the user's later conda recipe consume
   settings (all merge methods on, `delete_branch_on_merge=false`, projects on).
 - Stack: **pixi + conda** (`python 3.13.*`, `pysam>=0.22` from bioconda; PyPI
   deps polars/cyclopts/loguru/pydantic; editable self-install). `linux-64` only.
-  `pixi.lock` was gitignored (untracked) — later overridden, see below.
+- Code inherited version `3.0.0` from the `bam_tagger` lineage.
 
 # Decisions (as-built)
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Visibility | **Keep private** | User request; release/tag become public automatically when the repo is flipped later. |
-| Branch protection | **Skip (deferred)** | Blocked on private repos without GitHub Pro (403). Revisit when public. |
+| Visibility | **Keep private** | User request; release/tag become public when flipped later. |
+| Branch protection | **Skip (deferred)** | Blocked on private repos without GitHub Pro (403). |
 | License | **MIT** | Already declared in `pyproject.toml`. |
-| CI | **pixi-based** (`setup-pixi@v0.10.0`) | `pysam` is conda-only; `pip`-based CI cannot install it. `ubuntu-latest` == `linux-64`. |
+| CI | **pixi-based** (`setup-pixi@v0.10.0`) | `pysam` is conda-only. `ubuntu-latest` == `linux-64`. |
 | Release artifacts | **sdist + wheel** (`python -m build`) | Inputs a conda recipe consumes. |
-| `pixi.lock` | **Committed** | `setup-pixi cache:true` needs it for the cache key; also gives a reproducible solve. |
-| Dependabot | **`github-actions` only** | `pip`-ecosystem Dependabot would drift PyPI deps vs the pixi solve (pysam conda-only). |
-| Version | **v3.0.0** | Matches `pyproject.toml` / `pixi.toml`. |
+| `pixi.lock` | **Committed** | `setup-pixi cache:true` needs it for the cache key + reproducible solve. |
+| Dependabot | **`github-actions` only** | `pip`-ecosystem would drift PyPI deps vs the pixi solve. |
+| Version | **v0.1.0** (corrected from v3.0.0) | New package → initial 0.1.0, not inherited 3.0.0. |
 
 # Steps (all done)
 
-1. ✅ **LICENSE** — MIT added (Yun Jiang, 2026).
+1. ✅ **LICENSE** — MIT (Yun Jiang, 2026).
 2. ✅ **`pyproject.toml`** — `readme` + `[project.urls]`.
 3. ✅ **`pixi.toml`** — `build` task + `build` dev dep.
 4. ✅ **`README.md`** — CI/release/license/python badges.
@@ -51,37 +52,39 @@ with source/wheel artifacts — the inputs the user's later conda recipe consume
 6. ✅ **`.github/workflows/release.yml`** — tag `v*.*.*` → build → attach.
 7. ✅ **`.github/dependabot.yml`** — `github-actions`, weekly, grouped.
 8. ✅ **Commit + push** — `ca6728f`; then `9450d88` (lock fix) after first CI failed.
-9. ✅ **CI green** — run `30967572496` (33s), all 5 steps ✓.
+9. ✅ **CI green**.
 10. ✅ **Settings** — squash-only, `delete_branch_on_merge`, projects off; description.
 11. ✅ **Topics** — 8 added.
-12. ✅ **Tag `v3.0.0`** + push → release workflow run `30967697840` (36s) ✓.
-13. ✅ **Release live** with sdist + wheel; curated notes via `gh release edit`.
-14. ✅ Report written; this plan rewritten in place.
+12. ✅ **First tag v3.0.0** pushed, release workflow green — **then user corrected to v0.1.0**.
+13. ✅ **Version bump** 3.0.0 → 0.1.0 (`pyproject`/`pixi`/`__init__`, `285670b`).
+14. ✅ **Deleted v3.0.0** release + tag (remote + local); tagged **v0.1.0** on `285670b`.
+15. ✅ **Release v0.1.0 live** (run `30968513819`, 33s) with sdist + wheel; curated notes.
+16. ✅ Report written; this plan rewritten in place.
 
 # Files
 
 - **Created**: `LICENSE`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`,
   `.github/dependabot.yml`, `pixi.lock` (newly tracked), this plan + the report.
-- **Edited**: `pyproject.toml`, `pixi.toml`, `README.md`, `.gitignore`.
+- **Edited**: `pyproject.toml`, `pixi.toml`, `README.md`, `.gitignore`,
+  `src/sam_tagger/__init__.py`.
 
-# Key deviation: committing `pixi.lock`
+# Key deviations
 
-The first CI run failed in 13s with *"Failed to generate cache key"* because
-`setup-pixi@v0.10.0`'s `cache: true` hashes `pixi.lock`, which was gitignored.
-Committed the lock (verified in sync via `pixi install --frozen`); `.gitignore`
-now ignores only `.pixi/`. This also makes CI reproducible. Report has details.
+- **Committed `pixi.lock`** — `setup-pixi@v0.10.0`'s `cache: true` hashes
+  `pixi.lock`, which was gitignored; first CI run failed *"Failed to generate
+  cache key"*. Committed the lock; `.gitignore` now ignores only `.pixi/`.
+- **Version 0.1.0 not 3.0.0** — user correction after the initial v3.0.0 tag;
+  v3.0.0 release+tag deleted, version bumped, v0.1.0 cut.
 
 # Verification
 
-- CI run `30967572496` green (lint+typecheck+test); release run `30967697840` green.
-- `gh release view v3.0.0` → wheel + sdist attached.
-- Local `pixi run -e dev build` → `dist/` artifacts (wheel has all 13 modules);
-  `pixi run -e dev test` → 126 passed.
+- Release run `30968513819` green (build + attach).
+- `gh release view v0.1.0` → `sam_tagger-0.1.0-py3-none-any.whl` + `sam-tagger-0.1.0.tar.gz`.
+- Local `pixi run -e dev build` → `dist/sam_tagger-0.1.0-*`; gate → 126 passed.
 
 # Follow-ups (out of scope)
 
 - Make repo public → then enable branch protection (`contexts: ["ci"]`,
   `enforce_admins: false`).
-- Merge Dependabot PR #1 (`actions/checkout` 4→7) — silences the Node 20
-  deprecation annotation.
+- Merge Dependabot PR #1 (`actions/checkout` 4→7).
 - Conda package (user).

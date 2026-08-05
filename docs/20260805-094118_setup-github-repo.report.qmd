@@ -1,5 +1,5 @@
 ---
-title: "sam-tagger — GitHub repo setup + v3.0.0 release (report)"
+title: "sam-tagger — GitHub repo setup + v0.1.0 release (report)"
 author: "Yun Jiang"
 date: "2026-08-05"
 format:
@@ -15,14 +15,16 @@ include-in-header:
 
 `jiangyun-fun/sam-tagger` is now a production-ready GitHub repo — license,
 pixi-based CI, tag-triggered release automation, Dependabot, settings, topics
-— and release **v3.0.0** is published with sdist + wheel. Plan:
+— and release **v0.1.0** is published with sdist + wheel. Plan:
 [20260805-094118_setup-github-repo.plan.qmd](./20260805-094118_setup-github-repo.plan.qmd).
 
 | Commit / tag | Change |
 |---|---|
 | `ca6728f ci:` | CI/release workflows, dependabot, LICENSE, repo metadata |
 | `9450d88 fix(ci):` | commit `pixi.lock` (cache-key fix) |
-| `v3.0.0` (tag) | first release (sdist + wheel) |
+| `c0e18ef docs:` | report + plan rewrite (first pass, v3.0.0) |
+| `285670b chore:` | bump version 3.0.0 → 0.1.0 |
+| `v0.1.0` (tag) | initial release (sdist + wheel) |
 
 # What was set up
 
@@ -39,48 +41,45 @@ pixi-based CI, tag-triggered release automation, Dependabot, settings, topics
 - **Settings** — squash-only, `delete_branch_on_merge=true`, projects off (wiki off),
   description set; **kept private** per user.
 - **Topics** — amplicon, bam, bioinformatics, cyclopts, minimap2, pysam, qc, sam.
-- **Release v3.0.0** — curated notes + `sam_tagger-3.0.0-py3-none-any.whl`
-  + `sam-tagger-3.0.0.tar.gz`.
+- **Release v0.1.0** — curated notes + `sam_tagger-0.1.0-py3-none-any.whl`
+  + `sam-tagger-0.1.0.tar.gz`.
 
 # Verification (evidence)
 
-- **CI green** — run `30967572496` (`ci`, 33s): checkout → `setup-pixi` →
-  `pixi run -e dev lint` → `typecheck` → `test`, all ✓.
-- **Release green** — run `30967697840` (`release`, 36s): build sdist+wheel ✓,
+- **Release green** — run `30968513819` (`release`, 33s): build sdist+wheel ✓,
   attach to release ✓.
-- **Release live** — <https://github.com/jiangyun-fun/sam-tagger/releases/tag/v3.0.0>
+- **Release live** — <https://github.com/jiangyun-fun/sam-tagger/releases/tag/v0.1.0>
   with both assets.
-- **Local build** — `pixi run -e dev build` → `dist/` with both artifacts; the
+- **Local build** — `pixi run -e dev build` → `dist/sam_tagger-0.1.0-*`; the
   wheel bundles all 13 modules + `entry_points.txt` + LICENSE. `python -m build`
   uses build isolation and does **not** import the package, so the conda-only
   `pysam` is not needed at build time (the inputs a conda recipe consumes).
-- **Gate (pre-commit)** — `pixi run -e dev lint && typecheck && test` →
-  **126 passed**, 0 type errors, lint clean.
+- **Gate** — `pixi run -e dev lint && typecheck && test` → **126 passed**,
+  0 type errors, lint clean (re-run after the version bump).
 - **Settings/topics** — confirmed via `gh api` / `gh repo edit`.
 
 # Deviations from plan (and why)
 
-- **Committed `pixi.lock`** — the plan said "respect the gitignore"; reality
-  overrode it. `setup-pixi@v0.10.0` with `cache: true` errored
+- **Version 0.1.0, not 3.0.0 (user correction).** The code inherited `3.0.0`
+  from the `bam_tagger` lineage; an initial release was first tagged `v3.0.0`,
+  then the user asked for `v0.1.0` instead (a new package starts at 0.1.0). The
+  `v3.0.0` release + tag were deleted (remote and local) and replaced: version
+  bumped to `0.1.0` in `pyproject.toml`, `pixi.toml`, and `__version__`
+  (`285670b`), then `v0.1.0` tagged on that commit. `pixi.lock` is unaffected
+  (editable install + workspace version are not pinned in the lock).
+- **Committed `pixi.lock`** — `setup-pixi@v0.10.0` with `cache: true` errored
   *"Failed to generate cache key"* on the first CI run (`30967486824`, failed in
-  13s): the cache key is hashed from `pixi.lock`, which was gitignored
-  (untracked). Committed the lock (pixi best practice for CI — reproducible solve
-  + working cache key); `.gitignore` now ignores only `.pixi/`. Fixed in `9450d88`.
-- **`setup-pixi@v0.10.0`, not `@v3`.** The skill examples don't cover setup-pixi;
-  `@v3` does not exist. Verified latest tag via `gh api repos/prefix-dev/setup-pixi`
-  → `v0.10.0`. Dependabot keeps it current.
+  13s): the cache key is hashed from `pixi.lock`, which was gitignored. Committed
+  the lock (pixi best practice for CI); `.gitignore` now ignores only `.pixi/`.
+- **`setup-pixi@v0.10.0`, not `@v3`.** Verified latest tag via `gh api` → `v0.10.0`.
 - **Dependabot = `github-actions` only.** Native `pip`-ecosystem Dependabot on
-  `pyproject.toml` would bump PyPI deps out of lockstep with `pixi.toml`
-  (`pysam` is conda-only). Rationale documented inline in the config.
+  `pyproject.toml` would drift PyPI deps vs the pixi solve (`pysam` is conda-only).
 
 # Out of scope / follow-ups
 
 - **Branch protection** — skipped (private repo; needs public or GitHub Pro).
-  Revisit when the repo goes public.
-- **Make repo public** — deferred by the user ("after some preparation"). The
-  release/tag become public automatically at that point.
-- **Dependabot PR #1** (`actions/checkout` 4→7) is open; its CI failed only
-  because it predates the lock commit — a re-run/merge will pass and also
-  silences the Node.js 20 deprecation annotation on `checkout@v4`.
-- **Conda package** — user will build separately; the sdist + wheel are the
-  inputs.
+- **Make repo public** — deferred by the user; release/tag become public then.
+- **Dependabot PR #1** (`actions/checkout` 4→7) is open; re-run/merge will pass
+  (its CI failed only because it predates the lock commit) and silences the
+  Node.js 20 deprecation annotation on `checkout@v4`.
+- **Conda package** — user will build separately; sdist + wheel are the inputs.
