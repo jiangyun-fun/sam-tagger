@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "sam-tagger"
 version = "3.0.0"
 description = "SAM/BAM tagger and amplicon QC stat generator (annotate / error-stats / pileup subcommands)"
+readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
 authors = [{ name = "Yun Jiang", email = "jiangyunacw@gmail.com" }]
@@ -17,6 +18,11 @@ dependencies = [
     "loguru>=0.7",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jiangyun-fun/sam-tagger"
+Repository = "https://github.com/jiangyun-fun/sam-tagger"
+Issues = "https://github.com/jiangyun-fun/sam-tagger/issues"
 
 [project.optional-dependencies]
 dev = [

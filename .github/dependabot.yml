@@ -1,0 +1,13 @@
+version: 2
+# Only github-actions is tracked here. Runtime Python deps live in pixi.toml
+# (pysam is deliberately conda-only), and native `pip` Dependabot on
+# pyproject.toml would drift PyPI deps out of lockstep with the pixi solve.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

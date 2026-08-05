@@ -12,6 +12,7 @@ lint = "ruff check ."
 lint-fix = "ruff check --fix ."
 format = "ruff format ."
 typecheck = "pyright"
+build = "python -m build"
 
 [environments]
 dev = ["dev"]
@@ -33,3 +34,4 @@ pyright = ">=1.1"
 
 [feature.dev.pypi-dependencies]
 pytest = ">=8.0"
+build = ">=1.2"

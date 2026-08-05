@@ -1,5 +1,10 @@
 # sam-tagger
 
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![release](../../actions/workflows/release.yml/badge.svg)](../../actions/workflows/release.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
+
 A SAM/BAM tagger and amplicon-sequencing QC statistics generator. Clean redesign
 of `bam_tagger` / `py-bam-tagger`, split into four focused subcommands with
 fixed I/O contracts (so each maps cleanly onto a `snakeforge-templates` rule).

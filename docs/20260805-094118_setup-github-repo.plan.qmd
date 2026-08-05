@@ -1,0 +1,100 @@
+---
+title: "sam-tagger — set up GitHub repo + first release"
+author: "Yun Jiang"
+date: "2026-08-05"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+# Objective
+
+Apply production hygiene to `jiangyun-fun/sam-tagger` (license, CI, release
+automation, dependency bumps, repo settings, topics) and cut release **v3.0.0**
+with source/wheel artifacts. The user will build a conda package separately
+afterwards, so the release ships the inputs a conda recipe expects.
+
+# Current state (verified)
+
+- Repo `jiangyun-fun/sam-tagger` exists on GitHub, **private**, default branch
+  `main`; local `a9dea68` == `origin/main` (0/0 ahead/behind).
+- **No** `LICENSE` (but `pyproject.toml` already declares `license = "MIT"`).
+- **No** `.github/workflows`, no Dependabot, no topics, no tags, no releases.
+- Repo settings are defaults: all 3 merge methods on, `delete_branch_on_merge=false`,
+  `has_projects=true`, `has_wiki=false`, no description.
+- Stack: **pixi + conda** (`pixi.toml`: `python 3.13.*`, `pysam>=0.22` from
+  bioconda; PyPI deps polars/cyclopts/loguru/pydantic; editable self-install).
+  `platforms = ["linux-64"]` only. Dev tools (ruff/pyright/pytest) live in the
+  `dev` env → gate is `pixi run -e dev test && lint && typecheck`.
+- No `build` task in `pixi.toml`.
+
+# Decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Visibility | **Keep private** (user will flip public later) | User request; release + tag are created now and become public automatically on the later flip. |
+| Branch protection | **Skip** | Blocked on private repos without GitHub Pro (403 confirmed). Revisit when public. |
+| License | **MIT** | Already declared in `pyproject.toml`; safe default for a CLI tool. |
+| CI | **pixi-based** (`prefix-dev/setup-pixi`) | pysam is conda-only; `pip`-based CI cannot install it. `ubuntu-latest` matches `linux-64`. |
+| Release artifacts | **sdist + wheel** (`python -m build`) | The inputs a conda recipe consumes. |
+| Dependabot | **`github-actions` only** | Native `pip` ecosystem on `pyproject.toml` would drift PyPI deps out of lockstep with `pixi.toml` (pysam is deliberately conda-only). |
+| Version | **v3.0.0** | Matches `pyproject.toml` / `pixi.toml`. |
+
+# Steps (checklist, in order)
+
+1. **LICENSE** — add MIT (Yun Jiang, 2026).
+2. **`pyproject.toml`** — add `[project.urls]` (Homepage/Repository/Issues) and
+   `readme = "README.md"` to `[project]`.
+3. **`pixi.toml`** — add `build = "python -m build"` task and `build` to
+   `[feature.dev.pypi-dependencies]`.
+4. **`README.md`** — add CI + license badges.
+5. **`.github/workflows/ci.yml`** — one job named `ci`, pixi-based: checkout →
+   `setup-pixi` (cache on `pixi.lock`) → `pixi run -e dev lint` → `typecheck`
+   → `test`. Trigger on `main` push + PR.
+6. **`.github/workflows/release.yml`** — on tag `v*.*.*` (+ `workflow_dispatch`):
+   checkout tag → `setup-pixi` → `pixi run -e dev build` → create-or-update
+   release → `gh release upload` `dist/sam-tagger-*` (`--clobber`). Mirrors CI's
+   pixi setup.
+7. **`.github/dependabot.yml`** — `github-actions` ecosystem, weekly, grouped.
+8. **Commit + push** (Conventional Commits, heredoc, no Co-Author, author
+   Yun Jiang).
+9. **Verify CI** run is green (`gh run watch` / `gh run list`).
+10. **Repo settings** via `gh api -X PATCH`: squash-only, `delete_branch_on_merge=true`,
+    `has_projects=false` (wiki already false); keep private.
+11. **Topics**: `bioinformatics sam bam amplicon qc cyclopts pysam minimap2`.
+12. **Tag `v3.0.0`** (annotated) + push → triggers release workflow.
+13. **Verify release workflow** is green and the release exists with sdist + wheel
+    assets; edit release notes to curated v3.0.0 text.
+14. Write `…report.qmd`; rewrite this plan in place to as-built.
+
+# Files to touch
+
+- **Create**: `LICENSE`, `.github/workflows/ci.yml`,
+  `.github/workflows/release.yml`, `.github/dependabot.yml`.
+- **Edit**: `pyproject.toml`, `pixi.toml`, `README.md`.
+- **Docs**: `docs/20260805-094118_setup-github-repo.plan.qmd` (this file),
+  `docs/20260805-094118_setup-github-repo.report.qmd` (after).
+
+# Risks
+
+- **pixi solve on CI**: `pixi.lock` is committed, so the solve is fixed;
+  `setup-pixi` caches on the lockfile. `linux-64` ↔ `ubuntu-latest` matches.
+- **`python -m build` + pysam**: build isolation fetches only hatchling; the
+  package is never imported at build time, so the conda-only pysam is not
+  needed for the wheel build. (Verified by reasoning; will confirm on the run.)
+- **Private release**: a private repo's release/tag is visible to collaborators
+  only — fine; it becomes public automatically when the repo does.
+- **Release workflow first run**: the tag-push trigger has never fired before;
+  if it fails, rebuild via `gh workflow run release.yml -f tag=v3.0.0`.
+
+# Verification criteria
+
+- CI run green on `main` (lint + typecheck + test, all via `pixi run -e dev`).
+- Release workflow green on `v3.0.0` tag.
+- `gh release view v3.0.0` shows `sam-tagger-3.0.0.tar.gz` + `sam_tagger-3.0.0-*.whl`.
+- `gh api .../licenses` reports MIT; repo has topics; settings patched.
+- Local `pixi run -e dev build` produces `dist/` artifacts before tagging.
