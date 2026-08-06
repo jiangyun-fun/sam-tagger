@@ -60,7 +60,7 @@ class AnnotateArgs:
     config: Annotated[
         Path | None,
         Parameter(
-            help="TOML config of per-ref primer/subread/NB params. Required for TC/AP/NB/subread."
+            help="CSV config of per-ref primer/subread/NB params. Required for TC/AP/NB/subread."
         ),
     ] = None
     fasta: Annotated[
@@ -172,7 +172,7 @@ class ErrorStatsArgs:
     """Arguments for ``sam-tagger error-stats``."""
 
     input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags).")]
-    config: Annotated[Path, Parameter(help="TOML config with per-ref error_primer_*_len.")]
+    config: Annotated[Path, Parameter(help="CSV config with per-ref error_primer_*_len.")]
     prefix: Annotated[
         Path | None,
         Parameter(
@@ -275,7 +275,7 @@ class QcSummaryArgs:
     config: Annotated[
         Path | None,
         Parameter(
-            help="TOML config (tc/amp/error primer params). Omit to compute FL + read counts only.",
+            help="CSV config (tc/amp/error primer params). Omit to compute FL + read counts only.",
         ),
     ] = None
     verbose: Annotated[

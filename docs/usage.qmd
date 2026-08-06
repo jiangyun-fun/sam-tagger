@@ -125,23 +125,23 @@ sam-tagger annotate aln.cs.bam out.bam --add-fl FL --add-ms MS --add-me ME
 
 # Primer-dependent tags require a config
 sam-tagger annotate aln.cs.bam out.bam \
-    --config primers.toml \
+    --config primers.csv \
     --add-fl FL --add-tc TC --add-ap AP --add-ee EE
 
 # Write CRAM (--fasta mandatory), and add NB (also needs config + fasta)
 sam-tagger annotate aln.cs.bam out.cram --output-format cram \
-    --fasta ref.fa --config primers.toml \
+    --fasta ref.fa --config primers.csv \
     --add-fl FL --add-tc TC --add-ap AP --add-nb NB
 
 # Tag the BAM and emit FL + AP statistics alongside
 sam-tagger annotate aln.cs.bam out.bam \
-    --config primers.toml \
+    --config primers.csv \
     --add-fl FL --add-ap AP \
     --fl-stats fl.parquet --ap-stats ap.parquet
 
 # Extract sub-reads (config supplies subread_start/subread_end)
 sam-tagger annotate aln.cs.bam out.bam \
-    --config primers.toml --add-fl FL \
+    --config primers.csv --add-fl FL \
     --extract-sub-reads-fastq subreads.fq.gz
 ```
 
@@ -167,10 +167,10 @@ the seven individual `--*-out` paths — the two are mutually exclusive.
 
 ```bash
 # prefix form (all 7 files at once)
-sam-tagger error-stats aln.cs.bam primers.toml --prefix run1
+sam-tagger error-stats aln.cs.bam primers.csv --prefix run1
 
 # explicit-output form
-sam-tagger error-stats aln.cs.bam primers.toml \
+sam-tagger error-stats aln.cs.bam primers.csv \
     --error-out err.parquet --mismatch-out mm.parquet \
     --insertion-out ins.parquet --deletion-out del.parquet \
     --per-read-out pr.parquet --per-base-out pb.parquet \
@@ -214,48 +214,35 @@ Zero-read references appear with zeros.
 
 ```bash
 # full summary
-sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.toml
+sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.csv
 
 # FL + read counts only (no primer config)
 sam-tagger qc-summary aln.cs.bam qc.parquet
 ```
 
-# Configuration (TOML)
+# Configuration (CSV)
 
-Per-reference primer/sub-read/NB parameters live in one TOML file, validated by
-pydantic. Table names must match a `@SQ SN` in the BAM header (because
-`seq_name`/`seq_len` come from the header). Unknown keys are rejected as errors.
+Per-reference primer/sub-read/NB parameters live in one **wide CSV** file (one
+row per reference), validated by pydantic. `seq_name` must match a `@SQ SN` in
+the BAM header (because `seq_name`/`seq_len` come from the header — `seq_len` is
+not in the CSV). Empty cells mean "unset"; unknown columns, duplicate/empty
+`seq_name`, and wrong-typed values are hard errors.
 
-```toml
-# primers.toml — one [ref-name] table per reference.
-[seq1]
-tc_primer_start_len    = 8      # --add-tc  / --tc-stats
-tc_primer_end_len      = 8
-amp_primer_start_len   = 9      # --add-ap  / --ap-stats
-amp_primer_end_len     = 7
-amp_primer_start_seq   = "GGGGGGGGG"
-amp_primer_end_seq     = "CCCCCCC"
-error_primer_start_len = 5      # error-stats
-error_primer_end_len   = 5
-subread_start          = 12     # --extract-sub-reads-fastq
-subread_end            = 21
-next_n                 = 6      # --add-nb / --nb-stats (needs --fasta)
-
-# Ref names with non-[A-Za-z0-9_-] characters must be quoted:
-["150-1-P"]
-error_primer_start_len = 10
-error_primer_end_len   = 10
+```csv
+seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_len,amp_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+seq1,8,8,9,7,GGGGGGGGG,CCCCCCC,5,5,12,21,6
+150-1-P,,,,,,,,10,10,,
 ```
 
-A complete example ships at [`config.example.toml`](../config.example.toml).
+A complete example ships at [`config.example.csv`](../config.example.csv).
 
-| Config field                                              | Drives                                  |
-|-----------------------------------------------------------|-----------------------------------------|
-| `tc_primer_start_len` / `tc_primer_end_len`               | `--add-tc`, `--tc-stats`                |
-| `amp_primer_*_len`, `amp_primer_*_seq`                    | `--add-ap`, `--ap-stats`                |
-| `error_primer_start_len` / `error_primer_end_len`         | `error-stats`                           |
-| `subread_start` / `subread_end`                           | `--extract-sub-reads-fastq`             |
-| `next_n`                                                  | `--add-nb`, `--nb-stats` (needs `--fasta`) |
+| Config column                                            | Drives                                    |
+|----------------------------------------------------------|-------------------------------------------|
+| `tc_primer_start_len` / `tc_primer_end_len`              | `--add-tc`, `--tc-stats`                  |
+| `amp_primer_*_len`, `amp_primer_*_seq`                   | `--add-ap`, `--ap-stats`                  |
+| `error_primer_start_len` / `error_primer_end_len`        | `error-stats`                             |
+| `subread_start` / `subread_end`                          | `--extract-sub-reads-fastq`               |
+| `next_n`                                                 | `--add-nb`, `--nb-stats` (needs `--fasta`) |
 
 `FL` and the CIGAR-only tags need **no** config.
 
@@ -273,7 +260,7 @@ run_annotate(AnnotateArgs(
     output_bam=Path("out.bam"),
     add_fl="FL",
     add_tc="TC",
-    config=Path("primers.toml"),
+    config=Path("primers.csv"),
 ))
 ```
 

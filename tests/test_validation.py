@@ -60,7 +60,7 @@ def test_annotate_nb_without_config_raises(tmp_path) -> None:
 
 def test_annotate_nb_without_fasta_raises(tmp_path) -> None:
     # config supplies next_n, but no --fasta -> still requires fasta
-    cfg = "[seq1]\nnext_n = 6\n"
+    cfg = {"seq1": {"next_n": 6}}
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
     with pytest.raises(ValueError, match="fasta"):
         run_annotate(_args(setup, add_nb="NB", config=setup.config_path))
@@ -78,16 +78,19 @@ def test_annotate_validation_creates_no_output(tmp_path) -> None:
 
 def test_error_stats_missing_error_config_raises(tmp_path) -> None:
     # config declares tc params but no error_primer_*_len -> cfg.error is None
-    cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+    cfg = {"seq1": {"tc_primer_start_len": 8, "tc_primer_end_len": 8}}
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
     assert setup.config_path is not None
     with pytest.raises(ValueError, match="error_primer"):
-        run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path,
-                                       prefix=tmp_path / "err"))
+        run_error_stats(
+            ErrorStatsArgs(
+                input_bam=setup.input_bam, config=setup.config_path, prefix=tmp_path / "err"
+            )
+        )
 
 
 def test_error_stats_neither_prefix_nor_explicit_raises(tmp_path) -> None:
-    cfg = "[seq1]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
+    cfg = {"seq1": {"error_primer_start_len": 5, "error_primer_end_len": 5}}
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
     assert setup.config_path is not None
     # error config is fine, but no prefix and no explicit out paths -> from_args raises

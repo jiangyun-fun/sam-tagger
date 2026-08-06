@@ -36,12 +36,20 @@ def _read_per_base(path: Path) -> dict[str, dict[str, int]]:
 
 
 def test_qc_summary_multi_ref(tmp_path: Path) -> None:
-    cfg = (
-        "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
-        "error_primer_start_len = 5\nerror_primer_end_len = 5\n"
-        "[seq2]\ntc_primer_start_len = 5\ntc_primer_end_len = 5\n"
-        "error_primer_start_len = 5\nerror_primer_end_len = 5\n"
-    )
+    cfg = {
+        "seq1": {
+            "tc_primer_start_len": 8,
+            "tc_primer_end_len": 8,
+            "error_primer_start_len": 5,
+            "error_primer_end_len": 5,
+        },
+        "seq2": {
+            "tc_primer_start_len": 5,
+            "tc_primer_end_len": 5,
+            "error_primer_start_len": 5,
+            "error_primer_end_len": 5,
+        },
+    }
     sam = (
         f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
         f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::10*at:13\n"
@@ -89,10 +97,14 @@ def test_qc_summary_multi_ref(tmp_path: Path) -> None:
 
 
 def test_qc_summary_ap_all_statuses(tmp_path: Path) -> None:
-    cfg = (
-        '[seq1]\namp_primer_start_len = 8\namp_primer_end_len = 8\n'
-        'amp_primer_start_seq = "ACGTACGT"\namp_primer_end_seq = "ACGTACGT"\n'
-    )
+    cfg = {
+        "seq1": {
+            "amp_primer_start_len": 8,
+            "amp_primer_end_len": 8,
+            "amp_primer_start_seq": "ACGTACGT",
+            "amp_primer_end_seq": "ACGTACGT",
+        }
+    }
     sam = (
         f"both\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
         f"neither\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'T' * 28}\t{Q * 28}\n"
@@ -147,10 +159,10 @@ def test_qc_summary_no_config(tmp_path: Path) -> None:
 
 
 def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
-    cfg = (
-        "[seq1]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
-        "[seq2]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
-    )
+    cfg = {
+        "seq1": {"error_primer_start_len": 5, "error_primer_end_len": 5},
+        "seq2": {"error_primer_start_len": 5, "error_primer_end_len": 5},
+    }
     sam = (
         f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
         f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::10*at:13\n"
@@ -160,7 +172,9 @@ def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
     assert setup.config_path is not None
 
     qc_out = tmp_path / "qc.parquet"
-    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=qc_out, config=setup.config_path))
+    run_qc_summary(
+        QcSummaryArgs(input_bam=setup.input_bam, output=qc_out, config=setup.config_path)
+    )
     qc = _read_qc(qc_out)
 
     pre = tmp_path / "err"
@@ -202,16 +216,23 @@ def test_qc_summary_empty_bam(tmp_path: Path) -> None:
 
 
 def test_qc_summary_cli(tmp_path: Path) -> None:
-    cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+    cfg = {"seq1": {"tc_primer_start_len": 8, "tc_primer_end_len": 8}}
     sam = f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\tcs:Z::28\n"
     setup = setup_env(tmp_path, cfg, HDR_1_28, sam)
     assert setup.config_path is not None
     out = tmp_path / "qc.parquet"
     with pytest.raises(SystemExit) as ei:
-        app([
-            "qc-summary", "-i", str(setup.input_bam), "-o", str(out),
-            "--config", str(setup.config_path),
-        ])
+        app(
+            [
+                "qc-summary",
+                "-i",
+                str(setup.input_bam),
+                "-o",
+                str(out),
+                "--config",
+                str(setup.config_path),
+            ]
+        )
     assert ei.value.code in (0, None)
     assert out.exists()
     assert pl.read_parquet(out)["total_reads"].to_list() == [1]

@@ -37,21 +37,15 @@ auto-detects BAM/CRAM/SAM. If reads lack a `cs` tag that a cs-dependent feature
 
 ## Configuration
 
-Per-reference primer/subread/NB parameters live in a **TOML** file (validated by
-pydantic). `seq_name`/`seq_len` come from the BAM header, so the config only
-carries what the header cannot. See [`config.example.toml`](config.example.toml).
+Per-reference primer/subread/NB parameters live in a **wide CSV** file (one row
+per reference, validated by pydantic). `seq_name` must match a `@SQ SN` in the
+BAM header; `seq_len` comes from the header, so the config only carries what the
+header cannot. Empty cells mean "unset"; unknown columns and duplicate/empty
+`seq_name` are hard errors. See [`config.example.csv`](config.example.csv).
 
-```toml
-[seq1]
-tc_primer_start_len  = 8
-tc_primer_end_len    = 8
-amp_primer_start_seq = "GGGGGGGGG"
-amp_primer_end_seq   = "CCCCCCC"
-error_primer_start_len = 5
-error_primer_end_len   = 5
-subread_start = 12
-subread_end   = 21
-next_n        = 6
+```csv
+seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+seq1,8,8,GGGGGGGGG,CCCCCCC,5,5,12,21,6
 ```
 
 `FL` and the CIGAR-only tags need **no config**. Primer-dependent features
@@ -75,12 +69,14 @@ package (`__all__`).
 from pathlib import Path
 from sam_tagger import AnnotateArgs, run_annotate
 
-run_annotate(AnnotateArgs(
-    input_bam=Path("in.bam"),
-    output_bam=Path("out.bam"),
-    add_fl="FL",
-    config=Path("config.toml"),
-))
+run_annotate(
+    AnnotateArgs(
+        input_bam=Path("in.bam"),
+        output_bam=Path("out.bam"),
+        add_fl="FL",
+        config=Path("config.csv"),
+    )
+)
 ```
 
 ## Development

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import gzip
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pysam
@@ -34,19 +36,32 @@ def write_fasta(path: Path, refs: dict[str, str]) -> Path:
     return path
 
 
+def _write_config_csv(path: Path, config: dict[str, dict[str, Any]]) -> None:
+    """Serialize a {ref -> {field: value}} mapping to a wide CSV (empty cell = unset)."""
+    field_keys: set[str] = set()
+    for params in config.values():
+        field_keys.update(params.keys())
+    fieldnames = ["seq_name", *sorted(field_keys)]
+    with open(path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, restval="", extrasaction="ignore")
+        writer.writeheader()
+        for name, params in config.items():
+            writer.writerow({"seq_name": name, **params})
+
+
 def setup_env(
     tmp_path: Path,
-    config_toml: str | None,
+    config: dict[str, dict[str, Any]] | None,
     sam_header_sq: str,
     sam_records: str,
     *,
     fasta: dict[str, str] | None = None,
 ) -> Setup:
-    """Write an optional TOML config, an optional FASTA (+faidx), and a BAM from SAM."""
+    """Write an optional CSV config, an optional FASTA (+faidx), and a BAM from SAM."""
     config_path: Path | None = None
-    if config_toml is not None:
-        config_path = tmp_path / "config.toml"
-        config_path.write_text(config_toml)
+    if config is not None:
+        config_path = tmp_path / "config.csv"
+        _write_config_csv(config_path, config)
 
     if fasta is not None:
         write_fasta(tmp_path / "ref.fa", fasta)
@@ -57,12 +72,16 @@ def setup_env(
     output_bam = tmp_path / "output.bam"
     sam_path.write_text(f"{sam_header_sq}\n{sam_records}")
 
-    with pysam.AlignmentFile(str(sam_path), "r") as sam_reader, \
-         pysam.AlignmentFile(str(input_bam), "wb", header=sam_reader.header) as bam_writer:
+    with (
+        pysam.AlignmentFile(str(sam_path), "r") as sam_reader,
+        pysam.AlignmentFile(str(input_bam), "wb", header=sam_reader.header) as bam_writer,
+    ):
         for record in sam_reader:
             bam_writer.write(record)
 
-    return Setup(tmp_dir=tmp_path, config_path=config_path, input_bam=input_bam, output_bam=output_bam)
+    return Setup(
+        tmp_dir=tmp_path, config_path=config_path, input_bam=input_bam, output_bam=output_bam
+    )
 
 
 def get_bam_tags_as_int(bam_path: Path) -> dict[str, dict[str, int]]:
@@ -107,7 +126,9 @@ def read_gzipped_fastq(path: Path) -> list[FastqRecord]:
 
 
 def read_simple_stats(path: Path) -> dict[str, int]:
-    return {str(r["seq_name"]): int(r["count"]) for r in pl.read_parquet(path).iter_rows(named=True)}
+    return {
+        str(r["seq_name"]): int(r["count"]) for r in pl.read_parquet(path).iter_rows(named=True)
+    }
 
 
 def read_pileup(path: Path) -> list[tuple]:

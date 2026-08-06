@@ -1,4 +1,4 @@
-"""Unit tests for the pydantic TOML config loader."""
+"""Unit tests for the pydantic CSV config loader."""
 
 from __future__ import annotations
 
@@ -26,34 +26,66 @@ def _write(path: Path, text: str) -> Path:
 
 
 def test_parse_config_basic(tmp_path: Path) -> None:
-    cfg = _write(tmp_path / "c.toml", """
-[seq1]
-tc_primer_start_len = 8
-tc_primer_end_len = 8
-amp_primer_start_seq = "GGGGGGGGG"
-amp_primer_end_seq = "CCCCCCC"
-next_n = 6
-""")
+    cfg = _write(
+        tmp_path / "c.csv",
+        "seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,next_n\n"
+        "seq1,8,8,GGGGGGGGG,CCCCCCC,6\n",
+    )
     refs = parse_config(cfg)
     assert set(refs) == {"seq1"}
     assert refs["seq1"].tc_primer_start_len == 8
     assert refs["seq1"].next_n == 6
-    # defaults applied
+    # omitted min_match column -> model default applies
     assert refs["seq1"].amp_primer_start_min_match == 7
 
 
-def test_parse_config_rejects_unknown_key(tmp_path: Path) -> None:
-    cfg = _write(tmp_path / "c.toml", """
-[seq1]
-tc_primer_star_len = 8   # typo
-""")
+def test_parse_config_empty_cell_is_unset(tmp_path: Path) -> None:
+    # A row with only seq_name populated; every other cell empty.
+    cfg = _write(tmp_path / "c.csv", "seq_name,next_n,subread_start\n150-1-P,,\n")
+    refs = parse_config(cfg)
+    assert set(refs) == {"150-1-P"}
+    assert refs["150-1-P"].next_n is None
+    assert refs["150-1-P"].subread_start is None
+
+
+def test_parse_config_rejects_unknown_column(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "seq_name,tc_primer_star_len\nx,8\n")  # typo
+    with pytest.raises(ValueError, match="Unknown config column"):
+        parse_config(cfg)
+
+
+def test_parse_config_rejects_missing_seq_name_column(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "ref,next_n\nx,6\n")
+    with pytest.raises(ValueError, match="seq_name"):
+        parse_config(cfg)
+
+
+def test_parse_config_rejects_duplicate_seq_name(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "seq_name,next_n\nx,1\nx,2\n")
+    with pytest.raises(ValueError, match="Duplicate"):
+        parse_config(cfg)
+
+
+def test_parse_config_rejects_empty_seq_name(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "seq_name,next_n\n,6\n")
+    with pytest.raises(ValueError, match="Empty"):
+        parse_config(cfg)
+
+
+def test_parse_config_rejects_bad_type(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "seq_name,tc_primer_start_len\nx,abc\n")
     with pytest.raises(ValidationError):
         parse_config(cfg)
 
 
+def test_parse_config_header_only_is_empty(tmp_path: Path) -> None:
+    cfg = _write(tmp_path / "c.csv", "seq_name,next_n\n")
+    assert parse_config(cfg) == {}
+
+
 def test_parse_config_missing_file(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        parse_config(tmp_path / "nope.toml")
+        parse_config(tmp_path / "nope.csv")
 
 
 def test_build_params_full(tmp_path: Path) -> None:
@@ -78,9 +110,9 @@ def test_build_params_full(tmp_path: Path) -> None:
     assert params.ap is not None
     ap = params.ap["seq1"]
     assert isinstance(ap, ApParams)
-    assert ap.primer_start_end_pos == 8          # 9 - 1
-    assert ap.primer_end_start_pos == 93         # 100 - 7
-    assert ap.primer_start_seq == b"GGGGGGGGG"   # uppercased + encoded
+    assert ap.primer_start_end_pos == 8  # 9 - 1
+    assert ap.primer_end_start_pos == 93  # 100 - 7
+    assert ap.primer_start_seq == b"GGGGGGGGG"  # uppercased + encoded
     assert ap.primer_end_seq == b"CCCCCCC"
 
     assert params.error is not None
@@ -118,11 +150,10 @@ def test_load_config_none_returns_empty() -> None:
 
 
 def test_load_config_roundtrip(tmp_path: Path) -> None:
-    cfg = _write(tmp_path / "c.toml", """
-["150-1-P"]
-error_primer_start_len = 10
-error_primer_end_len = 10
-""")
+    cfg = _write(
+        tmp_path / "c.csv",
+        "seq_name,error_primer_start_len,error_primer_end_len\n150-1-P,10,10\n",
+    )
     params = load_config(cfg, {"150-1-P": 76})
     assert params.error is not None
     assert params.error["150-1-P"].seq_len == 76

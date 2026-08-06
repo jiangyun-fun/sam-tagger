@@ -1,0 +1,78 @@
+---
+title: "sam-tagger — switch config from TOML to CSV (plan)"
+author: "Yun Jiang"
+date: "2026-08-06"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+---
+
+# Context
+
+`sam-tagger` configures per-reference primer/sub-read/NB params via a **TOML**
+file, validated by pydantic `RefConfig` (`src/sam_tagger/config.py`). TOML fit a
+handful of hand-authored refs, but panels routinely have **thousands of refs**:
+the file becomes machine-generated data. At that scale TOML is uninspectable
+(no Excel sort/filter), noisy in git diffs, and awkward to emit. User chose
+**CSV** (human-inspectable, Excel-editable, line-diffable, one polars call to
+emit from a primer-design DataFrame).
+
+Outcome: one wide CSV replaces TOML. **Hard cutover** (pre-1.0, private, no
+external users). The `RefConfig` model + `build_params` join stay; only the
+parser changes, so validation (`extra="forbid"` equivalent, typed fields,
+BAM-header `seq_len` join) is preserved.
+
+# CSV schema (wide, one row per ref)
+
+- Required column **`seq_name`** (must match a BAM `@SQ SN`); `seq_len` is NOT
+  in the CSV (still from the BAM header).
+- Other columns: any subset of `RefConfig` field names.
+- **Empty cell = unset** → fed to `RefConfig` by omitting null cells → model
+  default applies (`None` for most fields, `7` for the two `min_match`). **No
+  model change needed.**
+- Unknown column → `ValueError` (typo guard). Duplicate/empty `seq_name` →
+  `ValueError`. Wrong type → `pydantic.ValidationError`.
+- Ref names with commas handled by standard CSV quoting (better than TOML's
+  `["150-1-P"]` bracket-quoting).
+
+# Steps
+
+1. `src/sam_tagger/config.py` — rewrite `parse_config` to read CSV via polars
+   (`pl.read_csv`): validate `seq_name` col + no unknown cols, iterate rows,
+   `RefConfig(**non_null_cells)`, detect dup/empty seq_name. Drop `tomllib`.
+   Add a **loguru warning** in `build_params` for config refs missing from the
+   BAM header (silent today; matters at thousands of refs). Update docstring.
+2. `config.example.toml` → trash; add `config.example.csv`.
+3. Test helpers (`tests/_helpers.py`, `tests/test_integration.py` dup):
+   `config_toml: str` → `config: dict[str, dict]`; serialize to `config.csv`
+   via stdlib `csv`.
+4. `tests/test_config.py` — rewrite parser tests for CSV (basic, unknown
+   column, dup/empty seq_name, bad type, missing file, roundtrip).
+5. Migrate call sites: `config_toml="""…"""` → `config={"seq1": {…}}` across
+   `test_cli/complex/cram/cs_warning/qc_summary/stats/validation/integration`.
+6. CLI help `--config` "TOML…" → "CSV…" (`cli.py`); README + `docs/usage.qmd`
+   config sections + examples.
+
+# Files
+
+- **src**: `config.py`, `cli.py` (help text).
+- **tests**: `_helpers.py`, `test_integration.py`, `test_config.py` (rewrite),
+  + call-site edits in 8 test files.
+- **example**: `config.example.toml` (trash) → `config.example.csv`.
+- **docs**: `README.md`, `docs/usage.qmd`.
+
+# Verification
+
+- `pixi run -e dev test` (gate), `lint`, `typecheck` — all green.
+- Manual: 3-ref CSV (full / error-only / comma-name) → `annotate --config` +
+  `qc-summary --config`; spot-check unknown column, dup seq_name, bad type,
+  header-only file; confirm header-reconciliation warning fires.
+
+# Out of scope
+
+No Parquet (deferred), no TOML backward-compat (hard cutover), no change to
+resolved structs / `lib.py` orchestrators / output formats.

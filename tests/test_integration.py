@@ -1,7 +1,7 @@
 """Integration tests for sam-tagger, ported from py-bam-tagger.
 
 Adapted to the new design:
-- config is TOML (not CSV); seq_len comes from the BAM header, so each test's
+- config is CSV; seq_len comes from the BAM header, so each test's
   @SQ LN must match the length the test expects (FL / primer inner regions).
 - each test builds the subcommand's args dataclass and calls the orchestrator
   directly (run_annotate / run_error_stats / run_pileup).
@@ -16,6 +16,7 @@ from pathlib import Path
 
 import polars as pl
 import pysam
+from _helpers import Setup, setup_env
 
 from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs
 from sam_tagger.lib import run_annotate, run_error_stats, run_pileup
@@ -29,39 +30,6 @@ H_SEQ1_100_SEQ2_100 = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:seq1\tLN:100\n@SQ\tSN
 
 
 # --- Helpers ---
-
-
-@dataclass
-class Setup:
-    tmp_dir: Path
-    config_path: Path | None
-    input_bam: Path
-    output_bam: Path
-
-
-def setup_env(
-    tmp_path: Path,
-    config_toml: str | None,
-    sam_header_sq: str,
-    sam_records: str,
-) -> Setup:
-    """Write an optional TOML config and a BAM (converted from SAM)."""
-    config_path: Path | None = None
-    if config_toml is not None:
-        config_path = tmp_path / "config.toml"
-        config_path.write_text(config_toml)
-
-    sam_path = tmp_path / "test.sam"
-    input_bam = tmp_path / "test.bam"
-    output_bam = tmp_path / "output.bam"
-    sam_path.write_text(f"{sam_header_sq}\n{sam_records}")
-
-    with pysam.AlignmentFile(str(sam_path), "r") as sam_reader, \
-         pysam.AlignmentFile(str(input_bam), "wb", header=sam_reader.header) as bam_writer:
-        for record in sam_reader:
-            bam_writer.write(record)
-
-    return Setup(tmp_dir=tmp_path, config_path=config_path, input_bam=input_bam, output_bam=output_bam)
 
 
 def annotate_args(setup: Setup, **kwargs: object) -> AnnotateArgs:
@@ -93,9 +61,7 @@ def get_bam_tags_as_string(bam_path: Path) -> dict[str, dict[str, str]]:
     with pysam.AlignmentFile(str(bam_path), "rb") as reader:
         for record in reader.fetch(until_eof=True):
             qname = record.query_name or ""
-            result[qname] = {
-                t: str(record.get_tag(t)) for t in ("TC", "AP") if record.has_tag(t)
-            }
+            result[qname] = {t: str(record.get_tag(t)) for t in ("TC", "AP") if record.has_tag(t)}
     return result
 
 
@@ -117,7 +83,9 @@ def read_gzipped_fastq(path: Path) -> list[FastqRecord]:
 
 
 def read_simple_stats(path: Path) -> dict[str, int]:
-    return {str(r["seq_name"]): int(r["count"]) for r in pl.read_parquet(path).iter_rows(named=True)}
+    return {
+        str(r["seq_name"]): int(r["count"]) for r in pl.read_parquet(path).iter_rows(named=True)
+    }
 
 
 def read_pileup(path: Path) -> list[tuple]:
@@ -138,7 +106,11 @@ class TestTagging:
         )
         setup = setup_env(tmp_path, None, H_SEQ1_28, sam_records)
 
-        run_annotate(annotate_args(setup, add_fl="FL", add_ms="MS", add_me="ME", add_ss="SS", add_es="ES", add_dm="DM"))
+        run_annotate(
+            annotate_args(
+                setup, add_fl="FL", add_ms="MS", add_me="ME", add_ss="SS", add_es="ES", add_dm="DM"
+            )
+        )
 
         tags = get_bam_tags_as_int(setup.output_bam)
         fl = tags["is_full_len"]
@@ -160,7 +132,7 @@ class TestTagging:
         assert sc["DM"] == 20
 
     def test_on_target_tc_tagging(self, tmp_path: Path) -> None:
-        cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+        cfg = {"seq1": {"tc_primer_start_len": 8, "tc_primer_end_len": 8}}
         sam_records = (
             "on_target_perfect\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAAAAACCCCCCCCCCCCBBBBBBBB\t*\tcs:Z::28\n"
             "on_target_variant_in_primer\t0\tseq1\t1\t60\t2M1D25M\t*\t0\t0\tAAAAAAAAAAAAAAAACCCCCBBBBBB\t*\tcs:Z::2-a:25\n"
@@ -179,15 +151,16 @@ class TestTagging:
         assert "TC" not in tags["off_target_del_span_start"]
 
     def test_amplicon_primer_ap_tagging(self, tmp_path: Path) -> None:
-        cfg = (
-            "[seq2]\n"
-            "amp_primer_start_len = 9\n"
-            "amp_primer_end_len = 7\n"
-            'amp_primer_start_seq = "GGGGGGGGG"\n'
-            'amp_primer_end_seq = "CCCCCCC"\n'
-            "amp_primer_start_min_match = 9\n"
-            "amp_primer_end_min_match = 7\n"
-        )
+        cfg = {
+            "seq2": {
+                "amp_primer_start_len": 9,
+                "amp_primer_end_len": 7,
+                "amp_primer_start_seq": "GGGGGGGGG",
+                "amp_primer_end_seq": "CCCCCCC",
+                "amp_primer_start_min_match": 9,
+                "amp_primer_end_min_match": 7,
+            }
+        }
         sam_records = (
             "has_both\t0\tseq2\t1\t60\t26M\t*\t0\t0\tGGGGGGGGGTTTTTTTTTTCCCCCCC\t*\tcs:Z::26\n"
             "has_start_only\t0\tseq2\t1\t60\t15M\t*\t0\t0\tGGGGGGGGGTTTTTT\t*\tcs:Z::15\n"
@@ -231,10 +204,10 @@ class TestTagging:
 
 class TestTagStats:
     def test_fl_and_tc_stats_generation(self, tmp_path: Path) -> None:
-        cfg = (
-            "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
-            "[seq2]\ntc_primer_start_len = 5\ntc_primer_end_len = 5\n"
-        )
+        cfg = {
+            "seq1": {"tc_primer_start_len": 8, "tc_primer_end_len": 8},
+            "seq2": {"tc_primer_start_len": 5, "tc_primer_end_len": 5},
+        }
         sam_records = (
             "s1_fl_tc\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAAAAACCCCCCCCCCCCBBBBBBBB\t*\tcs:Z::28\n"
             "s1_fl_notc\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAAAAACCGCCCCCCCCCBBBBBBBB\t*\tcs:Z::10+g:17\n"
@@ -257,7 +230,7 @@ class TestTagStats:
 
 class TestErrorStats:
     def test_error_stats_generation(self, tmp_path: Path) -> None:
-        cfg = "[seq1]\nerror_primer_start_len = 5\nerror_primer_end_len = 5\n"
+        cfg = {"seq1": {"error_primer_start_len": 5, "error_primer_end_len": 5}}
         sam_records = (
             "err_read1\t0\tseq1\t1\t60\t7M1I4M1D15M\t*\t0\t0\tAAAAACCTXCCCGCCCCCCCCCCCCCC\t*\tcs:Z::7*ct+g:4-c:15\n"
             "err_read2\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAACACTCCCCCCCCCCCCCCCCCCC\t*\tcs:Z::7*ct:20"
@@ -265,13 +238,17 @@ class TestErrorStats:
         setup = setup_env(tmp_path, cfg, H_SEQ1_28, sam_records)
         assert setup.config_path is not None
         prefix = tmp_path / "stats"
-        run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix))
+        run_error_stats(
+            ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix)
+        )
 
         per_base = tmp_path / "stats.per_base.parquet"
         assert per_base.exists()
         stats: dict[str, int] = {
             str(r["type"]): int(r["count"])
-            for r in pl.read_parquet(per_base).filter(pl.col("seq_name") == "seq1").iter_rows(named=True)
+            for r in pl.read_parquet(per_base)
+            .filter(pl.col("seq_name") == "seq1")
+            .iter_rows(named=True)
         }
         assert stats["total"] == 56
         assert stats["insertion"] == 1
@@ -285,14 +262,25 @@ class TestErrorStats:
 
 
 class TestPileup:
-    def _run(self, tmp_path: Path, sam_records: str, *, min_base_qual: int = 20,
-             header: str = H_SEQ1_100, fasta: Path | None = None) -> Path:
+    def _run(
+        self,
+        tmp_path: Path,
+        sam_records: str,
+        *,
+        min_base_qual: int = 20,
+        header: str = H_SEQ1_100,
+        fasta: Path | None = None,
+    ) -> Path:
         setup = setup_env(tmp_path, None, header, sam_records)
         out = tmp_path / "pileup.parquet"
-        run_pileup(PileupArgs(
-            input_bam=setup.input_bam, output=out,
-            min_base_qual=min_base_qual, fasta=fasta,
-        ))
+        run_pileup(
+            PileupArgs(
+                input_bam=setup.input_bam,
+                output=out,
+                min_base_qual=min_base_qual,
+                fasta=fasta,
+            )
+        )
         return out
 
     def test_pileup_snp_detection(self, tmp_path: Path) -> None:
@@ -325,7 +313,15 @@ class TestPileup:
         pos10 = [r for r in stats if r[0] == "seq1" and r[1] == 10]
         assert len(pos10) == 1
         _, _, ref_base, alt, dp, adf, adr, ad, af = pos10[0]
-        assert ref_base == "A" and alt == "T" and dp == 2 and adf == 1 and adr == 1 and ad == 2 and abs(af - 1.0) < 0.001
+        assert (
+            ref_base == "A"
+            and alt == "T"
+            and dp == 2
+            and adf == 1
+            and adr == 1
+            and ad == 2
+            and abs(af - 1.0) < 0.001
+        )
 
     def test_pileup_quality_filtering(self, tmp_path: Path) -> None:
         sam_records = (
@@ -344,7 +340,9 @@ class TestPileup:
         ins = [r for r in stats if r[0] == "seq1" and r[1] == 10 and r[3].startswith("+")]
         assert len(ins) >= 1
         _, _, _ref, alt, dp, adf, adr, ad, af = ins[0]
-        assert alt == "+AC" and dp == 1 and adf == 1 and adr == 0 and ad == 1 and abs(af - 1.0) < 0.001
+        assert (
+            alt == "+AC" and dp == 1 and adf == 1 and adr == 0 and ad == 1 and abs(af - 1.0) < 0.001
+        )
 
     def test_pileup_deletion_detection(self, tmp_path: Path) -> None:
         sam_records = "del_forward\t0\tseq1\t1\t60\t14M2D14M\t*\t0\t0\tACGTACGTACACGTACGTACGTACGTAC\tIIIIIIIIIIIIIIIIIIIIIIIIIIII\tcs:Z::14-ac:14\n"
@@ -352,7 +350,9 @@ class TestPileup:
         dels = [r for r in stats if r[0] == "seq1" and r[1] == 14 and r[3].startswith("-")]
         assert len(dels) >= 1
         _, _, _ref, alt, dp, adf, adr, ad, af = dels[0]
-        assert alt == "-AC" and dp == 1 and adf == 1 and adr == 0 and ad == 1 and abs(af - 1.0) < 0.001
+        assert (
+            alt == "-AC" and dp == 1 and adf == 1 and adr == 0 and ad == 1 and abs(af - 1.0) < 0.001
+        )
 
     def test_pileup_mixed_alleles(self, tmp_path: Path) -> None:
         sam_records = (
@@ -422,22 +422,38 @@ class TestPileup:
 
 class TestExtraction:
     def test_softclip_extraction(self, tmp_path: Path) -> None:
-        sam_records = "sc_read\t0\tseq1\t10\t60\t5S10M5S\t*\t0\t0\tAAAAATTTTTTTTTTGGGGG\t@@@@@IIIIIIIIII?????"
+        sam_records = (
+            "sc_read\t0\tseq1\t10\t60\t5S10M5S\t*\t0\t0\tAAAAATTTTTTTTTTGGGGG\t@@@@@IIIIIIIIII?????"
+        )
         setup = setup_env(tmp_path, None, H_SEQ1_100, sam_records)
 
         left = tmp_path / "left.fastq.gz"
         right = tmp_path / "right.fastq.gz"
-        run_annotate(annotate_args(
-            setup, extract_left_softclip_fastq=left, extract_right_softclip_fastq=right,
-        ))
+        run_annotate(
+            annotate_args(
+                setup,
+                extract_left_softclip_fastq=left,
+                extract_right_softclip_fastq=right,
+            )
+        )
 
         lr = read_gzipped_fastq(left)
-        assert len(lr) == 1 and lr[0].head == "@sc_read" and lr[0].seq == "AAAAA" and lr[0].qual == "@@@@@"
+        assert (
+            len(lr) == 1
+            and lr[0].head == "@sc_read"
+            and lr[0].seq == "AAAAA"
+            and lr[0].qual == "@@@@@"
+        )
         rr = read_gzipped_fastq(right)
-        assert len(rr) == 1 and rr[0].head == "@sc_read" and rr[0].seq == "GGGGG" and rr[0].qual == "?????"
+        assert (
+            len(rr) == 1
+            and rr[0].head == "@sc_read"
+            and rr[0].seq == "GGGGG"
+            and rr[0].qual == "?????"
+        )
 
     def test_sub_read_extraction(self, tmp_path: Path) -> None:
-        cfg = "[seq1]\nsubread_start = 12\nsubread_end = 21\n"
+        cfg = {"seq1": {"subread_start": 12, "subread_end": 21}}
         sam_records = "subread_test\t0\tseq1\t10\t60\t5M2I8M3D5M\t*\t0\t0\tAAAAAIICCCCCCCCMMMMM\t@@@@@##IIIIIIIIJJJJJ"
         setup = setup_env(tmp_path, cfg, H_SEQ1_100, sam_records)
 

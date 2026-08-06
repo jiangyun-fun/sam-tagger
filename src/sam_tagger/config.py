@@ -1,35 +1,52 @@
 """Configuration loading for sam-tagger.
 
-Single source of truth: an optional **TOML** file validated by pydantic. The 13
+Single source of truth: an optional **CSV** file validated by pydantic. The 13
 CLI override flags and the "generic" CSV columns of bam_tagger are intentionally
 gone — there is exactly one way to supply each parameter.
 
 ``seq_name``/``seq_len`` come from the BAM header, so the config only carries
 per-reference primer / sub-read / NB parameters the header cannot provide.
 
-Example ``config.toml``::
+The CSV is **wide** — one row per reference, a ``seq_name`` column plus any
+subset of the :class:`RefConfig` field columns. Empty cells mean "unset" (the
+field's model default applies). Example ``config.csv``::
 
-    [seq1]
-    tc_primer_start_len  = 8
-    tc_primer_end_len    = 8
-    amp_primer_start_seq = "GGGGGGGGG"
-    amp_primer_end_seq   = "CCCCCCC"
-    error_primer_start_len = 5
-    error_primer_end_len   = 5
-    subread_start = 12
-    subread_end   = 21
-    next_n        = 6
+    seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+    seq1,8,8,GGGGGGGGG,CCCCCCC,5,5,12,21,6
+    150-1-P,,,,,,,,10,10,,
 """
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+import polars as pl
+from loguru import logger
 from pydantic import BaseModel, ConfigDict
 
 DEFAULT_MIN_MATCH_LEN: int = 7
+
+# Columns the config CSV may carry besides the seq_name key. Any other column
+# name is rejected (the extra="forbid" equivalent — catches typos).
+_SEQ_NAME_COL: str = "seq_name"
+_REF_CONFIG_FIELDS: frozenset[str] = frozenset(
+    {
+        "tc_primer_start_len",
+        "tc_primer_end_len",
+        "amp_primer_start_len",
+        "amp_primer_end_len",
+        "amp_primer_start_seq",
+        "amp_primer_end_seq",
+        "amp_primer_start_min_match",
+        "amp_primer_end_min_match",
+        "error_primer_start_len",
+        "error_primer_end_len",
+        "subread_start",
+        "subread_end",
+        "next_n",
+    }
+)
 
 
 # --- Resolved, immutable parameter structs consumed by `processing` ---
@@ -84,7 +101,7 @@ class AllConfigParams:
 
 
 class RefConfig(BaseModel):
-    """Per-reference parameters as declared in the TOML file.
+    """Per-reference parameters as declared in the CSV file.
 
     Every field is optional; a reference only declares what its features need.
     ``extra="forbid"`` turns typos (e.g. ``tc_primer_star_len``) into hard errors
@@ -109,36 +126,70 @@ class RefConfig(BaseModel):
 
 
 def parse_config(path: Path) -> dict[str, RefConfig]:
-    """Parse + validate the TOML config into per-reference ``RefConfig`` objects.
+    """Parse + validate the CSV config into per-reference ``RefConfig`` objects.
 
-    The TOML is a flat map of ``[ref-name]`` tables. Ref names containing
-    characters outside ``[A-Za-z0-9_-]`` must be quoted (``["150-1-P"]``).
+    The CSV is wide: a ``seq_name`` column (must match a BAM ``@SQ SN``) plus any
+    subset of ``RefConfig`` field columns. Each row is one reference. Empty cells
+    mean "unset" (the field's model default applies — a cell is simply omitted
+    from the ``RefConfig`` kwargs). ``seq_len`` is not in the CSV; it comes from
+    the BAM header.
 
     Raises
     ------
     FileNotFoundError
         If ``path`` does not exist.
-    tomllib.TOMLDecodeError
-        On malformed TOML.
+    ValueError
+        On a missing ``seq_name`` column, an unknown column, or a
+        duplicate/empty ``seq_name``.
     pydantic.ValidationError
-        On unknown keys or wrong types.
+        On a wrong-typed value (e.g. non-int in an int column).
     """
-    with open(path, "rb") as fh:
-        data = tomllib.load(fh)
-    return {str(name): RefConfig(**fields) for name, fields in data.items()}
+    if not path.exists():
+        raise FileNotFoundError(f"Config CSV not found: {path}")
+    df = pl.read_csv(path)
+
+    columns = df.columns
+    if _SEQ_NAME_COL not in columns:
+        raise ValueError(f"Config CSV must have a {_SEQ_NAME_COL!r} column; got {columns!r}")
+    unknown = [c for c in columns if c != _SEQ_NAME_COL and c not in _REF_CONFIG_FIELDS]
+    if unknown:
+        raise ValueError(
+            f"Unknown config column(s) {unknown!r}; allowed: {sorted(_REF_CONFIG_FIELDS)}"
+        )
+
+    refs: dict[str, RefConfig] = {}
+    for row in df.iter_rows(named=True):
+        raw_name = row[_SEQ_NAME_COL]
+        if raw_name is None or str(raw_name).strip() == "":
+            raise ValueError(f"Empty {_SEQ_NAME_COL!r} in config row: {row!r}")
+        name = str(raw_name)
+        if name in refs:
+            raise ValueError(f"Duplicate {_SEQ_NAME_COL!r} {name!r} in config CSV")
+        fields = {k: v for k, v in row.items() if k != _SEQ_NAME_COL and v is not None}
+        refs[name] = RefConfig(**fields)
+    return refs
 
 
 def build_params(
     refs: dict[str, RefConfig],
     header_ref_lengths: dict[str, int],
 ) -> AllConfigParams:
-    """Join per-ref TOML config with BAM-header ``seq_len`` into resolved params.
+    """Join per-ref CSV config with BAM-header ``seq_len`` into resolved params.
 
     A reference present in the config but absent from the BAM header (no
-    ``seq_len``) is skipped for every feature that needs ``seq_len``. Sub-read
+    ``seq_len``) is skipped for every feature that needs ``seq_len`` — and now
+    warned about, since at thousands of refs that mismatch is likely. Sub-read
     and NB do not require ``seq_len`` here (sub-read resolves against the
     per-read header length later; NB fetches against the FASTA).
     """
+    missing = [name for name in refs if name not in header_ref_lengths]
+    if missing:
+        preview = ", ".join(missing[:5])
+        logger.warning(
+            f"{len(missing)} config reference(s) not in the BAM header "
+            f"(dropped from seq_len-dependent features TC/AP/error); first: {preview}"
+        )
+
     tc: dict[str, TcParams] = {}
     ap: dict[str, ApParams] = {}
     error: dict[str, ErrorParams] = {}
@@ -210,7 +261,7 @@ def load_config(
     config_path: Path | None,
     header_ref_lengths: dict[str, int],
 ) -> AllConfigParams:
-    """Load config from TOML (if given) and resolve against BAM-header lengths.
+    """Load config from CSV (if given) and resolve against BAM-header lengths.
 
     Returns an empty ``AllConfigParams`` (all maps ``None``) when no config file
     is provided. Callers are responsible for validating that the maps they need

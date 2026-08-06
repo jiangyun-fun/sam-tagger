@@ -94,7 +94,7 @@ def test_cswatch_all_have_cs_is_silent(warn_messages: list[str]) -> None:
 
 
 def test_qc_summary_warns_when_cs_missing(warn_messages: list[str], tmp_path: Path) -> None:
-    cfg = "[seq1]\ntc_primer_start_len = 8\ntc_primer_end_len = 8\n"
+    cfg = {"seq1": {"tc_primer_start_len": 8, "tc_primer_end_len": 8}}
     sam = f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"  # no cs tag
     setup = setup_env(tmp_path, cfg, HDR_1_28, sam)
     assert setup.config_path is not None
@@ -111,10 +111,14 @@ def test_annotate_silent_when_only_fl(warn_messages: list[str], tmp_path: Path) 
     assert warn_messages == []  # needs_cs False -> silent
 
 
-def test_annotate_warns_when_ee_requested_without_cs(warn_messages: list[str], tmp_path: Path) -> None:
+def test_annotate_warns_when_ee_requested_without_cs(
+    warn_messages: list[str], tmp_path: Path
+) -> None:
     sam = f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"  # no cs tag
     setup = setup_env(tmp_path, None, HDR_1_28, sam)
     run_annotate(
-        AnnotateArgs(input_bam=setup.input_bam, output_bam=setup.output_bam, add_fl="FL", add_ee="EE")
+        AnnotateArgs(
+            input_bam=setup.input_bam, output_bam=setup.output_bam, add_fl="FL", add_ee="EE"
+        )
     )
     assert any("lacked a 'cs' tag" in m for m in warn_messages)
