@@ -1,0 +1,76 @@
+---
+title: "sam-tagger — public-facing doc scrub + v0.2.0 release (report)"
+author: "Yun Jiang"
+date: "2026-08-06"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+# Outcome
+
+`sam-tagger` **v0.2.0 is published** (tag `v0.2.0` → commit `8ce7b1b`). The
+user-facing docs no longer reference the private predecessor, the internal
+workflow framework, or foreground a sibling tagging step, and the released
+artifact now matches the documented **CSV** config (v0.1.0 shipped TOML).
+
+Plan: [`20260806-180800_public-release-v0.2.0.plan.qmd`](20260806-180800_public-release-v0.2.0.plan.qmd).
+
+# What was done
+
+1. **Prose scrub** (behavior-neutral). Removed predecessor/framework names and
+   reframed the `cs`-tag input around `minimap2 --cs` (sibling step demoted to
+   "your pipeline's cs-tagging step"):
+   - `README.md` (intro + pipeline placement), `docs/usage.qmd` (overview +
+     pipeline/cs section).
+   - Source docstrings: `__init__.py`, `config.py`, `lib.py` (incl. the runtime
+     `cs`-missing warning), `bed.py`, `parquet_writer.py`, `processing.py`.
+   - Test docstrings: `test_integration.py`, `test_validation.py`.
+   - `pyproject.toml` description now lists all four subcommands (was missing
+     `qc-summary`).
+2. **Gate**: `lint` clean · `typecheck` 0 errors · `test` **132 passed**
+   (unchanged — docstring edits are behavior-neutral).
+3. **Version bump** `0.1.0 → 0.2.0` in `pyproject.toml`, `pixi.toml`,
+   `src/sam_tagger/__init__.py`.
+4. **Commits** (Conventional Commits, `Yun Jiang`, no Co-Author trailer):
+   - `0fa1ad9` `docs: scrub internal references from public-facing docs`
+   - `8ce7b1b` `chore(release): bump version to 0.2.0`
+5. **Tag + push**: `v0.2.0`; `git push origin main --tags`.
+6. **Release workflow** (`31092579040`) → green in 27s; attached
+   `sam_tagger-0.2.0-py3-none-any.whl` + `sam_tagger-0.2.0.tar.gz`.
+7. **Curated release notes** set, leading with the breaking TOML→CSV change.
+
+# Verification (evidence)
+
+- Scrubbed surfaces clean:
+  `rg -i 'bam_?tagger|snakeforge|py-bam-tagger|cs-tagger|cs_tagger' README.md docs/usage.qmd src/ tests/` → exit 1 (no matches).
+- `sam-tagger --version` → `0.2.0`.
+- Tagged tree ships `config.example.csv` (no `config.example.toml`):
+  `git ls-tree v0.2.0 -- config.example.csv config.example.toml` lists only the CSV.
+- `gh release view v0.2.0`: `isPrerelease=false`; both assets attached; notes set.
+
+# Deviation from plan
+
+A concurrent reorg (commit `8dec1df`, made during this session) moved all
+plan/report `.qmd` files into `docs/plans/`. Discovered mid-task after the first
+docs commit placed the new plan at `docs/` root. Since nothing was pushed yet,
+redid cleanly (soft-reset, moved the plan into `docs/plans/`, re-committed) so
+the public history matches the convention from the start. Net history is
+unchanged in shape — two commits, tag on the version-bump commit.
+
+# Note on leftovers (per user decision)
+
+Prose-only cleanup: the benchmark/validation `scripts/` and the historical
+dev-log `.qmd` files were **left in place**. They contain no secrets, but they
+do reference an internal predecessor, an internal framework, and an internal
+path layout — visible once the repo goes public. Flagged, not changed.
+
+# Out of scope (carried forward)
+
+Removing/scrubbing `scripts/` and dev-log `.qmd`; declaring `pysam` as a PyPI
+dep; macOS pixi platform; branch protection (after public); conda packaging
+(user's separate task).

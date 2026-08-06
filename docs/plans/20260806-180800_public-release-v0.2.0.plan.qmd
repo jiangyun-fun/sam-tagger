@@ -1,5 +1,5 @@
 ---
-title: "sam-tagger — public-facing doc scrub + v0.2.0 release"
+title: "sam-tagger — public-facing doc scrub + v0.2.0 release (as-built)"
 author: "Yun Jiang"
 date: "2026-08-06"
 format:
@@ -11,14 +11,16 @@ include-in-header:
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
 ---
 
-# Objective
+# Objective (as built)
 
 Prepare `sam-tagger` for going public by scrubbing **internal-provenance
-references from the user-facing prose** (the private predecessor tool, an
-internal workflow framework, and a sibling tagging step foregrounded as if it
-were a required external dependency), then cut **v0.2.0** so the released
-artifact matches the documented CSV config (the published v0.1.0 still ships
-the old TOML config). No behavior change.
+references from user-facing prose** (a private predecessor tool, an internal
+workflow framework, and a sibling tagging step foregrounded as if a required
+external dependency), then cut **v0.2.0** so the released artifact matches the
+documented CSV config (the published v0.1.0 still shipped TOML). No behavior
+change.
+
+Report: [`20260806-181817_public-release-v0.2.0.report.qmd`](20260806-181817_public-release-v0.2.0.report.qmd).
 
 # Decisions (from the user)
 
@@ -26,47 +28,51 @@ the old TOML config). No behavior change.
   historical dev-log `.qmd` files in place; only rewrite user-facing prose.
 - **Release v0.2.0** (breaking TOML→CSV config change).
 
-# Scope
+# Scope (as built)
 
-Lead input-source framing with `minimap2 --cs` (a public tool); demote the
-sibling tagging step to "your pipeline's cs-tagging step". Drop predecessor /
-framework names. Describe the tool as an **amplicon-sequencing QC** tagger on
-its own merits.
+Lead input-source framing with `minimap2 --cs`; demote the sibling tagging step
+to "your pipeline's cs-tagging step". Drop predecessor / framework names.
+Describe the tool as an **amplicon-sequencing QC** tagger on its own merits.
 
-- `README.md` — intro (drop predecessor + framework framing; add amplicon-QC
-  positioning) and pipeline section (`minimap2 --cs` primary).
-- `docs/usage.qmd` — predecessor clause + pipeline/cs section.
-- Source docstrings: `src/sam_tagger/{__init__,config,lib,bed,parquet_writer,processing}.py`.
-- Test docstrings: `tests/test_integration.py`, `tests/test_validation.py`.
-- `pyproject.toml` description — list all four subcommands (currently omits
+- `README.md` — intro + pipeline placement rewritten.
+- `docs/usage.qmd` — overview + pipeline/cs section rewritten.
+- Source docstrings: `__init__.py`, `config.py`, `lib.py` (incl. the runtime
+  `cs`-missing warning), `bed.py`, `parquet_writer.py`, `processing.py`.
+- Test docstrings: `test_integration.py`, `test_validation.py`.
+- `pyproject.toml` description — list all four subcommands (was missing
   `qc-summary`).
 
-# Steps
+# Steps (as executed)
 
-1. This plan record.
-2. Scrub the prose surfaces listed above.
-3. Gate: `pixi run -e dev lint && pixi run -e dev typecheck && pixi run -e dev test`.
+1. This plan record (`docs/plans/`).
+2. Prose scrub of the surfaces above.
+3. Gate: `pixi run -e dev lint && typecheck && test` → **132 passed**, clean.
 4. Bump `0.1.0 → 0.2.0` in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`.
 5. Two commits (`docs:` scrub, `chore(release): bump`), tag `v0.2.0`, push.
-6. Release workflow builds sdist+wheel and attaches; then curate release notes
-   (lead with the breaking config change).
-7. Report record.
+6. Release workflow built sdist+wheel and attached; curated notes set.
+
+# Deviation from the original plan
+
+A concurrent reorg (commit `8dec1df`) moved all plan/report `.qmd` files into
+`docs/plans/`. Discovered after the first docs commit placed the new plan at
+`docs/` root. Redid cleanly before pushing (soft-reset, moved the plan into
+`docs/plans/`, re-committed) so public history matches the convention. History
+shape unchanged: two commits, tag on the version-bump commit.
 
 # Note on leftovers
 
 The benchmark `scripts/` and historical dev-log `.qmd` files remain (per the
 user). They contain no secrets/credentials, but they do reference an internal
 predecessor, an internal framework, and an internal path layout — visible once
-public. Flagged, not changed in this pass.
+public. Flagged, not changed.
 
 # Verification
 
-- Gate green, same passing test count (docstring edits are behavior-neutral).
+- Gate green, 132 passed (behavior-neutral).
 - `sam-tagger --version` → `0.2.0`.
-- `gh release view v0.2.0` shows sdist + wheel; released tarball contains
+- `gh release view v0.2.0` shows sdist + wheel; released tag ships
   `config.example.csv` (not TOML).
-- Grep: scrubbed surfaces clean (`scripts/` and dev-log `.qmd` still match by
-  design).
+- Scrubbed surfaces clean (`scripts/` and dev-log `.qmd` still match by design).
 
 # Out of scope
 
