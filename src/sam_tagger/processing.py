@@ -1,8 +1,7 @@
-"""Core BAM record processing functions (ported from py-bam-tagger processing.py).
+"""Core BAM record processing functions.
 
-CIGAR + cs-tag helpers. Logic is unchanged from the tested port; only the
-package import was updated. None of the removed tags (HI/HD/SP) lived here —
-those were orchestrator-level, handled in ``lib.py``.
+CIGAR + cs-tag helpers. None of the removed tags (HI/HD/SP) lived here — those
+were orchestrator-level, handled in ``lib.py``.
 """
 
 from __future__ import annotations

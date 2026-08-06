@@ -1,4 +1,4 @@
-"""Integration tests for sam-tagger, ported from py-bam-tagger.
+"""Integration tests for sam-tagger.
 
 Adapted to the new design:
 - config is CSV; seq_len comes from the BAM header, so each test's

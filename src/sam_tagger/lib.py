@@ -7,11 +7,10 @@ Four independent entry points, each a focused single pass over the BAM:
 - ``run_pileup``      — BAM -> pileup Parquet. Read-only.
 - ``run_qc_summary``  — BAM -> one per-reference QC summary Parquet. Read-only.
 
-Splitting the old single mega-pass into three commands re-reads the BAM when a
-user wants more than one, but each command now has a fixed I/O contract (one
-output shape) — the property that lets each map onto a snakeforge template.
-The ``cs`` tag is already on the BAM (produced by ``cs-tagger``), so the
-re-reads are cheap.
+Splitting the work across four commands means the BAM is re-read when a user
+runs more than one, but each command has a fixed I/O contract (one output
+shape) — making them clean, composable pipeline steps. The ``cs`` tag is
+already on the BAM, so the re-reads are cheap.
 """
 
 from __future__ import annotations
@@ -125,7 +124,7 @@ class _CsWatch:
         ):
             logger.warning(
                 "{} of the first {} mapped reads lack a 'cs' tag — TC/EE/AP/error/pileup "
-                "will be empty for them. Did you run cs-tagger (minimap2 --cs)?",
+                "will be empty for them. Align with minimap2 --cs so reads carry the cs tag?",
                 self._missing,
                 self._scanned,
             )

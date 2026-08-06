@@ -1,4 +1,4 @@
-"""BED interval parsing + interval queries (ported verbatim from py-bam-tagger)."""
+"""BED interval parsing + interval queries."""
 
 from __future__ import annotations
 

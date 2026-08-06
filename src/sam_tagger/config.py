@@ -1,8 +1,8 @@
 """Configuration loading for sam-tagger.
 
-Single source of truth: an optional **CSV** file validated by pydantic. The 13
-CLI override flags and the "generic" CSV columns of bam_tagger are intentionally
-gone — there is exactly one way to supply each parameter.
+Single source of truth: an optional **CSV** file validated by pydantic. There
+is exactly one way to supply each parameter — no per-field CLI override flags
+or generic catch-all columns.
 
 ``seq_name``/``seq_len`` come from the BAM header, so the config only carries
 per-reference primer / sub-read / NB parameters the header cannot provide.

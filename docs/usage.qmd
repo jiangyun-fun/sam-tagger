@@ -17,14 +17,14 @@ include-in-header:
 
 `sam-tagger` is a SAM/BAM tagger and amplicon-sequencing QC statistics generator.
 It reads the minimap2 `cs` (alignment comparison) tag and produces, in one pass
-per command, either a tagged BAM or Parquet statistics. It is the clean redesign
-of `bam_tagger` / `py-bam-tagger`, split into **four focused subcommands** with
-fixed I/O contracts.
+per command, either a tagged BAM or Parquet statistics. It is split into **four
+focused subcommands**, each with a fixed I/O contract (one well-defined output).
 
-In a typical amplicon pipeline it sits right after `cs`-tag generation:
+In a typical amplicon pipeline it sits right after alignment (the `cs` tag is
+produced by `minimap2 --cs`, or by any cs-tagging step your pipeline uses):
 
 ```
-minimap2 (--cs)  ──▶  cs-tagger  ──▶  sam-tagger
+minimap2 (--cs)  ──▶  sam-tagger
 ```
 
 ## The four subcommands
@@ -61,7 +61,8 @@ pixi run sam-tagger --version
 
 # Prerequisite: the `cs` tag
 
-Several features read the `cs` tag (added by `minimap2 --cs` or `cs-tagger`):
+Several features read the `cs` tag (produced by `minimap2 --cs`, or by a
+cs-tagging step in your pipeline):
 
 - **cs-dependent**: `--add-tc`, `--add-ee`, and the whole `error-stats`,
   `pileup`, and `qc-summary` (TC/error columns) commands.

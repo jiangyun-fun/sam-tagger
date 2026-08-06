@@ -1,0 +1,74 @@
+---
+title: "sam-tagger — public-facing doc scrub + v0.2.0 release"
+author: "Yun Jiang"
+date: "2026-08-06"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+# Objective
+
+Prepare `sam-tagger` for going public by scrubbing **internal-provenance
+references from the user-facing prose** (the private predecessor tool, an
+internal workflow framework, and a sibling tagging step foregrounded as if it
+were a required external dependency), then cut **v0.2.0** so the released
+artifact matches the documented CSV config (the published v0.1.0 still ships
+the old TOML config). No behavior change.
+
+# Decisions (from the user)
+
+- **Prose-only cleanup.** Leave the benchmark/validation `scripts/` and the
+  historical dev-log `.qmd` files in place; only rewrite user-facing prose.
+- **Release v0.2.0** (breaking TOML→CSV config change).
+
+# Scope
+
+Lead input-source framing with `minimap2 --cs` (a public tool); demote the
+sibling tagging step to "your pipeline's cs-tagging step". Drop predecessor /
+framework names. Describe the tool as an **amplicon-sequencing QC** tagger on
+its own merits.
+
+- `README.md` — intro (drop predecessor + framework framing; add amplicon-QC
+  positioning) and pipeline section (`minimap2 --cs` primary).
+- `docs/usage.qmd` — predecessor clause + pipeline/cs section.
+- Source docstrings: `src/sam_tagger/{__init__,config,lib,bed,parquet_writer,processing}.py`.
+- Test docstrings: `tests/test_integration.py`, `tests/test_validation.py`.
+- `pyproject.toml` description — list all four subcommands (currently omits
+  `qc-summary`).
+
+# Steps
+
+1. This plan record.
+2. Scrub the prose surfaces listed above.
+3. Gate: `pixi run -e dev lint && pixi run -e dev typecheck && pixi run -e dev test`.
+4. Bump `0.1.0 → 0.2.0` in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`.
+5. Two commits (`docs:` scrub, `chore(release): bump`), tag `v0.2.0`, push.
+6. Release workflow builds sdist+wheel and attaches; then curate release notes
+   (lead with the breaking config change).
+7. Report record.
+
+# Note on leftovers
+
+The benchmark `scripts/` and historical dev-log `.qmd` files remain (per the
+user). They contain no secrets/credentials, but they do reference an internal
+predecessor, an internal framework, and an internal path layout — visible once
+public. Flagged, not changed in this pass.
+
+# Verification
+
+- Gate green, same passing test count (docstring edits are behavior-neutral).
+- `sam-tagger --version` → `0.2.0`.
+- `gh release view v0.2.0` shows sdist + wheel; released tarball contains
+  `config.example.csv` (not TOML).
+- Grep: scrubbed surfaces clean (`scripts/` and dev-log `.qmd` still match by
+  design).
+
+# Out of scope
+
+Removing/scrubbing `scripts/` and dev-log `.qmd`; declaring `pysam` as a PyPI
+dep; macOS pixi platform; branch protection; conda packaging.

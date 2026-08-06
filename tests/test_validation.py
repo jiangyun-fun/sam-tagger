@@ -1,8 +1,7 @@
 """Fail-fast validation tests for the orchestrators.
 
-sam-tagger added explicit pre-flight checks (the port's robustness improvement
-over bam_tagger); these pin them down so a missing config / fasta surfaces as a
-clear ValueError BEFORE any output file is written.
+sam-tagger runs explicit pre-flight checks; these pin them down so a missing
+config / fasta surfaces as a clear ValueError BEFORE any output file is written.
 """
 
 from __future__ import annotations

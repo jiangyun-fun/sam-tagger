@@ -1,6 +1,6 @@
 """sam-tagger — SAM/BAM tagger and amplicon QC statistics generator.
 
-A clean redesign of bam_tagger / py-bam-tagger, split into four focused
+Four focused
 subcommands: ``annotate`` (add tags + FASTQ extraction + tag stats),
 ``error-stats`` (7-file cs-tag error analysis), ``pileup`` (bcftools
 mpileup-like per-position statistics), and ``qc-summary`` (one per-reference QC

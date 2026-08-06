@@ -5,9 +5,9 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
 
-A SAM/BAM tagger and amplicon-sequencing QC statistics generator. Clean redesign
-of `bam_tagger` / `py-bam-tagger`, split into four focused subcommands with
-fixed I/O contracts (so each maps cleanly onto a `snakeforge-templates` rule).
+A SAM/BAM tagger and **amplicon-sequencing QC** statistics generator. Four
+focused subcommands, each with a fixed I/O contract (one well-defined output), so
+they're equally usable standalone or as steps in a larger pipeline.
 
 📖 For the full flag reference and copy-paste examples, see
 [`docs/usage.qmd`](docs/usage.qmd).
@@ -53,10 +53,12 @@ seq1,8,8,GGGGGGGGG,CCCCCCC,5,5,12,21,6
 
 ## Pipeline placement
 
-`sam-tagger` reads the `cs` tag, so it runs **after** `cs-tagger`:
+`sam-tagger` reads the `cs` (alignment comparison) tag, which `minimap2`
+produces with `--cs`. In an amplicon pipeline it runs right after alignment
+(and after any cs-tagging step your pipeline may use):
 
 ```
-minimap2 → cs-tagger → sam-tagger
+minimap2 (--cs) → sam-tagger
 ```
 
 ## Python API

@@ -1,4 +1,4 @@
-"""Parquet writer module for statistics output (ported verbatim from py-bam-tagger)."""
+"""Parquet writer module for statistics output."""
 
 from __future__ import annotations
 
