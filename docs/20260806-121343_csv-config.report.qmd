@@ -1,0 +1,75 @@
+---
+title: "sam-tagger — switch config from TOML to CSV (report)"
+author: "Yun Jiang"
+date: "2026-08-06"
+format:
+  html:
+    html-math-method: mathjax
+    toc: true
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+---
+
+# Outcome
+
+Per-reference config switched from **TOML** (`[ref]` tables) to a **wide CSV**
+(one row per reference). Hard cutover, no TOML reader kept. Plan:
+[20260806-121343_csv-config.plan.qmd](./20260806-121343_csv-config.plan.qmd).
+Commit: `d9041be refactor!: switch per-reference config from TOML to CSV`.
+
+# What changed
+
+- **`src/sam_tagger/config.py`** — `parse_config` reads CSV via polars: validates
+  a `seq_name` column + rejects unknown columns, duplicate/empty `seq_name`, and
+  wrong-typed values. **Empty cells are omitted from the `RefConfig` kwargs**, so
+  model defaults apply uniformly (`None` for most fields, `7` for the two
+  `min_match`) — **no model change was needed**. `build_params` now **warns** when
+  config refs are absent from the BAM header (silent before; likely at thousands
+  of refs). `RefConfig`, the resolved param structs, and the header join are
+  unchanged.
+- **`config.example.toml` → `config.example.csv`** (trashed the TOML).
+- **Tests** — `setup_env` (in `tests/_helpers.py`; the duplicate in
+  `test_integration.py` was removed in favor of the shared one) now takes a
+  structured `dict` and serializes a wide CSV. All call sites swap TOML string
+  literals for dict literals. `test_config.py` rewritten for CSV edge cases
+  (unknown column, dup/empty seq_name, bad type, header-only, empty-cell=unset).
+- **CLI/docs** — `--config` help "TOML…" → "CSV…"; README + `docs/usage.qmd`
+  config sections and examples updated.
+
+# Verification (evidence)
+
+- **Gate**: `pixi run -e dev lint` clean · `typecheck` 0 errors ·
+  `test` **132 passed** (was 126; +6 config edge-case tests).
+- **Shipped example parses**: `parse_config(config.example.csv)` → `seq1` (full)
+  + `150-1-P` (error-only); `load_config` resolves tc/ap/error/sub_read/nb for
+  `seq1`.
+- **End-to-end** through `config.example.csv`: a 28-base cs read →
+  `annotate` writes `FL=1, TC=OnTarget, AP=Both`; `qc-summary` writes
+  `seq1 total_reads=1, fl=1, on_target=1, ap_Both=1`; and the new header-
+  reconciliation warning fires for `150-1-P` (absent from the test BAM header).
+
+# Notable points
+
+- **The manual check caught a real bug**: the first `config.example.csv` had an
+  off-by-one comma in the `150-1-P` row — `error_primer_start_len` parsed as
+  `None` (the `10` landed in `error_primer_end_len`). Fixed (7 commas to reach
+  column 8, not 8) and re-verified **before** commit. (This is why the plan's
+  manual-verification step exists.)
+- **Helper typed `dict[str, dict[str, Any]]`**: test `cfg` variables infer
+  `dict[str, dict[str, int]]`, which is invariant vs a stricter union value
+  type — `Any` absorbs that and avoids per-test annotations.
+- **No `RefConfig` model change**: the "empty cell = omit = model default"
+  insight means the model and all resolved-param logic are untouched.
+- **Kept the commit focused**: `ruff format` also normalized pre-existing format
+  drift in 11 unrelated files (lib.py, scripts/*, several tests); those were
+  reverted — they're a separate, pre-existing concern, not part of this change.
+
+# Out of scope / follow-ups
+
+- **Parquet config** — deferred (add only if a fully machine-to-machine pipeline
+  needs it).
+- **Repo-wide `ruff format` normalization** — the format drift exists (CI runs
+  `ruff check`, not `format --check`); a dedicated `style:` pass + a CI
+  format-check is a separate decision.
+- Still the user's: make the repo public, then enable branch protection.
