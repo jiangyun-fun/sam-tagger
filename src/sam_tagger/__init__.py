@@ -12,7 +12,7 @@ is defined before the re-exports so ``sam_tagger.cli`` (which does
 ``from sam_tagger import __version__``) resolves during import.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs, QcSummaryArgs
 from sam_tagger.config import load_config
