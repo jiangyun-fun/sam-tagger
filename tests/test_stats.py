@@ -155,6 +155,20 @@ def test_error_stats_tally_mismatch(tmp_path: Path) -> None:
     assert st.per_read_summary.reads_with_mismatch == 1
     assert st.per_base_summary.mismatches == 1
     assert st.positional_errors[11].mismatches == 1  # pos 10 (0-based) -> 11 (1-based)
+    assert st.positional_errors[11].to_c == 1  # *ac: read base c -> to_c
+    assert st.positional_errors[11].to_a == 0
+
+
+def test_error_stats_tally_mismatch_n_read_base(tmp_path: Path) -> None:
+    # read-base N counts in mismatch but in no to_* column; ref-base N lands in to_*
+    params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
+    col = ErrorStatsCollector(params, _err_paths(tmp_path))
+    col.tally_from_parsed(parse_cs_tag(":10*an:10*na:78"), 0, "ref1", "r1")
+    st = col._stats_by_ref["ref1"]
+    assert st.positional_errors[11].mismatches == 1  # *an
+    assert st.positional_errors[11].to_a == 0
+    assert st.positional_errors[22].mismatches == 1  # *na
+    assert st.positional_errors[22].to_a == 1
 
 
 def test_error_stats_tally_insertion(tmp_path: Path) -> None:
@@ -204,6 +218,18 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
     for p in (paths.error, paths.mismatch, paths.insertion, paths.deletion,
               paths.per_read, paths.per_base, paths.single_deletion):
         assert p.exists()
+    df = pl.read_parquet(paths.error)
+    assert df.columns == [
+        "seq_name", "position", "insertion", "deletion", "mismatch",
+        "to_a", "to_c", "to_g", "to_t",
+    ]
+    row = df.filter(pl.col("position") == 21)  # *ac at 0-based 20 -> 1-based 21
+    assert row.height == 1
+    assert row["mismatch"].item() == 1
+    assert row["to_c"].item() == 1
+    assert row["to_a"].item() == 0
+    assert row["to_g"].item() == 0
+    assert row["to_t"].item() == 0
 
 
 def test_error_paths_from_prefix(tmp_path: Path) -> None:

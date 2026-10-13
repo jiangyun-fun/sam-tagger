@@ -28,6 +28,10 @@ class _PositionalErrorCounts:
     deletions: int = 0
     mismatches: int = 0
     single_deletions: int = 0
+    to_a: int = 0
+    to_c: int = 0
+    to_g: int = 0
+    to_t: int = 0
 
 
 @dataclass(slots=True)
@@ -213,6 +217,16 @@ class ErrorStatsCollector:
                         ref_stats.mismatch_matrix[ref_idx][read_idx] += 1
                         entry = self._get_or_create_pos(ref_stats.positional_errors, op_pos + 1)
                         entry.mismatches += 1
+                        # Destination-base split of the mismatch above; a read-base
+                        # N (idx 4) has no column, so to_a+to_c+to_g+to_t <= mismatches.
+                        if read_idx == 0:
+                            entry.to_a += 1
+                        elif read_idx == 1:
+                            entry.to_c += 1
+                        elif read_idx == 2:
+                            entry.to_g += 1
+                        elif read_idx == 3:
+                            entry.to_t += 1
                         ref_stats.per_base_summary.mismatches += 1
                         read_has_mismatch = True
                 current_pos += 1
@@ -293,7 +307,17 @@ class ErrorStatsCollector:
             seq_len = self._error_params_map[seq_name].seq_len
             for i in range(1, seq_len + 1):
                 counts = ref_stats.positional_errors.get(i, _PositionalErrorCounts())
-                pos_stats.add(seq_name, i, counts.insertions, counts.deletions, counts.mismatches)
+                pos_stats.add(
+                    seq_name,
+                    i,
+                    counts.insertions,
+                    counts.deletions,
+                    counts.mismatches,
+                    counts.to_a,
+                    counts.to_c,
+                    counts.to_g,
+                    counts.to_t,
+                )
         pos_stats.write_parquet(paths.error)
 
     def _write_single_deletion_stats(self, paths: ErrorStatsOutputPaths) -> None:

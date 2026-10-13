@@ -79,26 +79,28 @@ def test_typed_stats_write_and_read_parquet(tmp_path: Path) -> None:
 
 def test_positional_error_stats_to_dataframe() -> None:
     stats = PositionalErrorStats()
-    stats.add("ref1", 1, 5, 3, 2)
-    stats.add("ref1", 2, 0, 1, 0)
-    stats.add("ref2", 1, 10, 5, 3)
+    stats.add("ref1", 1, 5, 3, 2, 0, 2, 0, 0)
+    stats.add("ref1", 2, 0, 1, 0, 0, 0, 0, 0)
+    stats.add("ref2", 1, 10, 5, 3, 1, 1, 1, 0)
     df = stats.to_dataframe()
     assert df.height == 3
-    assert df.width == 5
+    assert df.width == 9
     assert df["position"][0] == 1
     assert df["position"][1] == 2
+    assert df["to_c"][0] == 2
+    assert df["to_g"][2] == 1
 
 
 def test_positional_error_stats_write_and_read_parquet(tmp_path: Path) -> None:
     path = tmp_path / "test_positional.parquet"
     stats = PositionalErrorStats()
-    stats.add("ref1", 10, 5, 3, 2)
-    stats.add("ref1", 20, 0, 0, 1)
+    stats.add("ref1", 10, 5, 3, 2, 1, 1, 0, 0)
+    stats.add("ref1", 20, 0, 0, 1, 0, 0, 0, 1)
     stats.write_parquet(path)
     assert path.exists()
     df = pl.scan_parquet(path).collect()
     assert df.height == 2
-    assert df.width == 5
+    assert df.width == 9
     assert df["position"][0] == 10
     assert df["insertion"][0] == 5
 

@@ -65,23 +65,41 @@ class TypedStats:
 
 @dataclass
 class PositionalErrorStats:
-    """5-column statistics: (seq_name, position, insertion, deletion, mismatch)."""
+    """9-column statistics.
 
-    data: list[tuple[str, int, int, int, int]] = field(default_factory=list)
+    Columns: (seq_name, position, insertion, deletion, mismatch, to_a, to_c, to_g, to_t).
+    """
+
+    data: list[tuple[str, int, int, int, int, int, int, int, int]] = field(default_factory=list)
 
     def add(
-        self, seq_name: str, position: int, insertion: int, deletion: int, mismatch: int
+        self,
+        seq_name: str,
+        position: int,
+        insertion: int,
+        deletion: int,
+        mismatch: int,
+        to_a: int,
+        to_c: int,
+        to_g: int,
+        to_t: int,
     ) -> None:
-        self.data.append((seq_name, position, insertion, deletion, mismatch))
+        self.data.append(
+            (seq_name, position, insertion, deletion, mismatch, to_a, to_c, to_g, to_t)
+        )
 
     def to_dataframe(self) -> pl.DataFrame:
         return pl.DataFrame(
             {
-                "seq_name": [n for n, _, _, _, _ in self.data],
-                "position": [p for _, p, _, _, _ in self.data],
-                "insertion": [i for _, _, i, _, _ in self.data],
-                "deletion": [d for _, _, _, d, _ in self.data],
-                "mismatch": [m for _, _, _, _, m in self.data],
+                "seq_name": [n for n, _, _, _, _, _, _, _, _ in self.data],
+                "position": [p for _, p, _, _, _, _, _, _, _ in self.data],
+                "insertion": [i for _, _, i, _, _, _, _, _, _ in self.data],
+                "deletion": [d for _, _, _, d, _, _, _, _, _ in self.data],
+                "mismatch": [m for _, _, _, _, m, _, _, _, _ in self.data],
+                "to_a": [a for _, _, _, _, _, a, _, _, _ in self.data],
+                "to_c": [c for _, _, _, _, _, _, c, _, _ in self.data],
+                "to_g": [g for _, _, _, _, _, _, _, g, _ in self.data],
+                "to_t": [t for _, _, _, _, _, _, _, _, t in self.data],
             },
             schema={
                 "seq_name": pl.Utf8,
@@ -89,6 +107,10 @@ class PositionalErrorStats:
                 "insertion": pl.UInt64,
                 "deletion": pl.UInt64,
                 "mismatch": pl.UInt64,
+                "to_a": pl.UInt64,
+                "to_c": pl.UInt64,
+                "to_g": pl.UInt64,
+                "to_t": pl.UInt64,
             },
         )
 
