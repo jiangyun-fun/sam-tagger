@@ -1,0 +1,364 @@
+---
+title: "Release v0.3.0 — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### v0.3.0 published on GitHub
+
+```
+level: high
+```
+
+#### reason
+
+The tag is pushed, the release page exists with the curated body, and the version bump is verified in three places and by the CLI.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Version `0.2.0 → 0.3.0` in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`.
+2. Commit `chore(release): bump version to 0.3.0` (`aa52fcc`), annotated tag `v0.3.0` on it, `main` and tag pushed.
+3. GitHub Release `v0.3.0` created with curated notes that document the `to_*` columns and the N-base caveat.
+
+#### before
+
+The GitHub remote sat at `v0.2.0` and `main` was 2 commits behind the local repository, so the `to_*` columns existed only locally.
+
+#### after
+
+The remote `main` carries the feature and the bump, and the release page publishes the schema change for downstream users.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+0.3.0
+[main aa52fcc] chore(release): bump version to 0.3.0
+To https://github.com/jiangyun-fun/sam-tagger.git
+   f2b02f3..aa52fcc  main -> main
+ * [new tag]         v0.3.0 -> v0.3.0
+https://github.com/jiangyun-fun/sam-tagger/releases/tag/v0.3.0
+```
+
+- `pixi run -e dev sam-tagger --version` → `0.3.0`.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### release artifacts depend on workflow completion
+
+```
+level: medium
+```
+
+#### reason
+
+At report-writing time the `release` workflow was still building the sdist and wheel, so the artifacts on the release page are not yet confirmed by direct observation.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `release.yml` builds via `pixi run -e dev build` and uploads `dist/*` to the release.
+2. A background watcher reports the workflow conclusions in this session before the work is called done.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `.github/workflows/release.yml:32-43` — build and attach steps.
+
+:::
+
+## caveat
+
+### semver choice assumes the repo follows 0.x minor bumps for features
+
+```
+level: medium
+```
+
+#### reason
+
+v0.2.0 used a minor bump for a feature-plus-breaking change, which supports but does not prove the convention for a pure additive feature.
+
+#### description
+
+```
+type: [text]
+```
+
+1. I chose `0.3.0` because new output columns are a user-visible feature, not a repair.
+2. A maintainer preferring `0.2.1` would need to re-cut the tag.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log -1 --format='%s' v0.2.0` → `chore(release): bump version to 0.2.0`.
+
+:::
+
+## assumption
+
+### release notes body is acceptable as written
+
+```
+level: medium
+```
+
+#### reason
+
+The body follows the v0.2.0 release style and states the semantics verified by tests, but the user has not reviewed it yet.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The notes name the four columns, the `to_x` semantics, and the N-base caveat.
+2. The user can edit the body on the release page without re-tagging.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh release view v0.3.0 --json body` returns the curated text (section headers `## error.parquet: mismatch split by read base`).
+
+:::
+
+## conclusion
+
+### the released artifact carries the to_* columns
+
+```
+level: high
+```
+
+#### reason
+
+The tag points at the bump commit that follows the feature commit, and the CLI reports the new version from the tagged source tree.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `v0.3.0` = `aa52fcc`, whose parent chain contains `9819fe4` (feature) and `1df9436` (docs).
+2. Downstream conda recipes can consume the sdist and wheel once the workflow attaches them.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git describe --exact-match HEAD` → `v0.3.0`.
+
+:::
+
+## recommendation
+
+### L: notify error.parquet consumers of the wider schema
+
+```
+level: medium
+```
+
+#### reason
+
+The schema change is additive but visible, and any strict-schema consumer breaks on the new columns. I have not audited who those consumers are.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Point downstream users of `error.parquet` at the v0.3.0 release notes before they upgrade.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+None
+
+## observation
+
+### both pushed workflows started immediately
+
+```
+level: high
+```
+
+#### reason
+
+The run list was queried right after the push and shows both workflows in progress.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. `release` run `38378721780` and `ci` run `38378715498`, both on the `v0.3.0`/`main` push.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+38378721780 release [push] in_progress
+38378715498 ci [push] in_progress
+```
+
+:::
+
+## process
+
+### created the release before the workflow finished
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. I created the GitHub Release with curated notes immediately after the tag push.
+2. `release.yml` then finds the release existing and only uploads artifacts, which keeps the curated body instead of `--generate-notes`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `.github/workflows/release.yml:41-42` — `gh release view || gh release create` guard.
+
+:::
+
+## change
+
+### files, git, and the release
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git`, `gh`, and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                            |
+|---------|-------------------------------------------------|
+| updated | `pyproject.toml`                                |
+| updated | `pixi.toml`                                     |
+| updated | `src/sam_tagger/__init__.py`                    |
+| created | `docs/plans/20261013-174513_release-v0.3.0.plan.qmd` |
+| created | `docs/plans/20261013-175022_release-v0.3.0.report.qmd` |
+| updated | `docs/misc/requirements_audit.qmd`              |
+| updated | `docs/misc/next_and_recommendation.qmd`         |
+
+1. Git: `aa52fcc` `chore(release): bump version to 0.3.0`; annotated tag `v0.3.0`; `main` + tag pushed to `jiangyun-fun/sam-tagger`.
+2. GitHub: Release `v0.3.0` created with curated notes.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+https://github.com/jiangyun-fun/sam-tagger/releases/tag/v0.3.0
+```
+
+:::
+
+## other
+
+None

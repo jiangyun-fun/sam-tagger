@@ -5,7 +5,7 @@ author: "Yun Jiang"
 
 ## next
 
-1. L: consider a version bump and release note for the wider error.parquet schema
+None
 
 ## recommendation
 

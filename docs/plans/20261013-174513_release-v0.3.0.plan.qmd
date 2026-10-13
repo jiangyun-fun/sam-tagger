@@ -1,0 +1,47 @@
+---
+title: "Release v0.3.0"
+author: "Yun Jiang"
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+## objective
+
+Cut **v0.3.0** on GitHub so the released artifact carries the new
+`error.parquet` read-base columns (`to_a`/`to_c`/`to_g`/`to_t`).
+
+## scope
+
+- Version bump `0.2.0 → 0.3.0` (minor: new, user-visible, additive output
+  feature; follows the v0.2.0 precedent of `0.x` minor bumps for features).
+- Push `main` (carries 2 unpushed commits) + annotated tag `v0.3.0`.
+- Curated GitHub Release body; `release.yml` builds and attaches sdist+wheel
+  on tag push.
+
+## steps
+
+1. Bump version in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`.
+2. Commit `chore(release): bump version to 0.3.0`.
+3. Annotated tag `v0.3.0` on the bump commit.
+4. Push `main` and the tag.
+5. Create the GitHub Release with curated notes (the workflow then only
+   uploads artifacts to it).
+6. Verify: release view shows the notes; workflow attaches sdist + wheel.
+
+## files
+
+- `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`
+
+## risks
+
+- Tag push triggers `release.yml`; if the build fails, the release stays
+  note-only until a fixed re-tag. Mitigation: same build path as v0.2.0,
+  suite green locally.
+- CI (`ci.yml`) runs on the `main` push; both new commits passed the local
+  suite and lint.
+
+## verification
+
+- `gh release view v0.3.0` shows the curated body plus sdist + wheel.
+- `git describe` / tag points at the bump commit.

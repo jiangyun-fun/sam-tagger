@@ -37,3 +37,36 @@ Git:
 - `9819fe4` feat: split error.parquet mismatch counts by read base
 
 Packages/Environments: None
+
+## release v0.3.0 on github
+
+```
+level: high
+date: 2026-10-13
+```
+
+### description
+
+The user asked to release a new version on GitHub. I read this as cutting
+the next release so the published artifact carries the new `error.parquet`
+`to_*` columns. I chose `0.3.0` (minor) because the change is a new,
+user-visible output feature, following the v0.2.0 precedent.
+
+### result
+
+1. Released v0.3.0: version bumped in three files, commit `aa52fcc`, annotated tag `v0.3.0`, `main` + tag pushed.
+2. Created the GitHub Release with curated notes documenting the `to_*` semantics and the N-base caveat.
+3. Verified `sam-tagger --version` reports `0.3.0`; workflow conclusions checked via a background watcher.
+
+### change
+
+Files:
+- updated: `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`
+- created: `docs/plans/20261013-174513_release-v0.3.0.plan.qmd`,
+  `docs/plans/20261013-175022_release-v0.3.0.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `aa52fcc` chore(release): bump version to 0.3.0 (pushed, tag `v0.3.0`)
+
+Packages/Environments: None
