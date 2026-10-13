@@ -1,0 +1,12 @@
+---
+title: "Next and Recommendation"
+author: "Yun Jiang"
+---
+
+## next
+
+1. L: consider a version bump and release note for the wider error.parquet schema
+
+## recommendation
+
+1. L: notify downstream error.parquet consumers of the additive schema change before they upgrade

@@ -18,3 +18,5 @@ dist/
 # quarto — rendered HTML + its resource dirs are build artifacts; commit the .qmd source only
 docs/*.html
 docs/*_files/
+docs/plans/*.html
+docs/plans/*_files/

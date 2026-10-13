@@ -1,0 +1,66 @@
+---
+title: "Add to_a/to_c/to_g/to_t columns to error.parquet"
+author: "Yun Jiang"
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+---
+
+## objective
+
+Split each position's `mismatch` count in the `--error-out` Parquet
+(`{p}.error.parquet`) by the read (destination) base, adding four columns:
+`to_a`, `to_c`, `to_g`, `to_t`. No `to_n` (user decision).
+
+## scope
+
+- In-scope: `ErrorStatsCollector` positional tally, `PositionalErrorStats`
+  writer, unit tests, `docs/usage.qmd` table + semantics note.
+- Out-of-scope: the other six error-stat outputs, `mismatch_matrix`,
+  `qc-summary` (unchanged — per-base totals keep their meaning), CLI surface
+  (no new flags; the columns are always present).
+
+## semantics
+
+- `to_x` = in-region substitutions at that 1-based position whose read base is
+  x, regardless of the reference base (a ref-N ref with read-A lands in
+  `to_a`).
+- A substitution whose read base is N counts in `mismatch` but in no `to_*`
+  column, so `to_a+to_c+to_g+to_t` can be below `mismatch`.
+
+## steps
+
+1. Add `to_a/to_c/to_g/to_t` int fields to `_PositionalErrorCounts`
+   (`src/sam_tagger/stats/error_stats.py`).
+2. In the `*` branch of `tally_from_parsed`, increment the field matching
+   `read_idx` 0–3 (skip 4 = N) after `entry.mismatches += 1`.
+3. Extend `PositionalErrorStats` (`src/sam_tagger/parquet_writer.py`) to a
+   9-column schema, all four new columns `UInt64`.
+4. Pass the four counts in `_write_error_stats` (dense loop unchanged).
+5. Update/extend tests in `tests/test_stats.py` (mismatch tally asserts the
+   `to_*` split, new N-base test, `write_all_seven` asserts the parquet
+   schema and values) and in `tests/test_parquet_writer.py` (the
+   `PositionalErrorStats.add` signature and the 9-column width).
+6. Update `docs/usage.qmd`: contents cell + N-semantics note.
+
+## files
+
+- `src/sam_tagger/stats/error_stats.py`
+- `src/sam_tagger/parquet_writer.py`
+- `tests/test_stats.py`
+- `tests/test_parquet_writer.py`
+- `docs/usage.qmd`
+
+## risks
+
+- Schema widening is visible to strict-schema downstream consumers
+  (additive only; name-based readers unaffected).
+- Larger row width in `error.parquet`; new columns are mostly zeros, and
+  Parquet run-length encoding keeps growth small.
+
+## verification
+
+- `pixi run -e dev test` green (all existing + new tests).
+- `pixi run -e dev lint` green.
+- New test asserts: `*ac` → `to_c=1`; read-N → no `to_*`; ref-N/read-A →
+  `to_a=1`; written parquet carries the 9-column schema.

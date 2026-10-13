@@ -1,0 +1,402 @@
+---
+title: "Add to_a/to_c/to_g/to_t columns to error.parquet — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### read-base split columns in error.parquet
+
+```
+level: high
+```
+
+#### reason
+
+A unit test reads the written Parquet and asserts the nine-column schema and the `to_c` value, and the full suite and lint pass this session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The `--error-out` file (`{p}.error.parquet`) now writes nine columns: `seq_name`, `position`, `insertion`, `deletion`, `mismatch`, `to_a`, `to_c`, `to_g`, `to_t`.
+2. `to_x` counts the in-region substitutions at that 1-based position whose read (destination) base is x.
+3. The tally increments the four counters inside the existing `*` branch, so the change adds no extra pass over the BAM.
+
+#### before
+
+Each position carried one `mismatch` total. A user could not tell which base the reads carried at a failing position without a separate per-base analysis.
+
+#### after
+
+Each position's mismatch count is split by destination base in the same file. Position-level error plots can now show the substitution direction.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py:31-34` — new `to_a/to_c/to_g/to_t` fields on `_PositionalErrorCounts`.
+- `src/sam_tagger/stats/error_stats.py:222-229` — destination-base increments in the `*` branch.
+- `src/sam_tagger/stats/error_stats.py:316-319` — the four counts passed to the writer.
+- `src/sam_tagger/parquet_writer.py:67-113` — 9-column `PositionalErrorStats` schema, all new columns `UInt64`.
+- `tests/test_stats.py:212` — `test_error_stats_write_all_seven` asserts the schema and the `to_c=1` row at position 21.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### no to_n column
+
+```
+level: high
+```
+
+#### reason
+
+The user explicitly chose the 4-column option over the 5-column option with `to_n`, and the code increments `to_*` only for read-base index 0–3.
+
+#### description
+
+```
+type: [text]
+```
+
+1. A substitution whose read base is N counts in `mismatch` and in no `to_*` column.
+2. Adding `to_n` later is one more field, one more branch arm, and one more column.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py:220-229` — the comment records that read-base N (idx 4) has no column.
+
+:::
+
+## caveat
+
+### to_* sum can be below mismatch
+
+```
+level: high
+```
+
+#### reason
+
+The condition is structural (N has no column), a test pins both N cases, and the semantics are written into the user docs.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Do not assert `to_a + to_c + to_g + to_t == mismatch` on real data.
+2. Read-base-N substitutions and ref-N/read-ACGT substitutions both widen the gap: ref-N events land in `to_*`, read-N events do not.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_stats.py:162` — `test_error_stats_tally_mismatch_n_read_base`: `*an` gives mismatch 1 with all `to_*` 0, `*na` gives `to_a` 1.
+- `docs/usage.qmd:163-166` — the semantics note under the outputs table.
+
+:::
+
+## assumption
+
+### to_* counts the read base as the destination
+
+```
+level: medium
+```
+
+#### reason
+
+I inferred the direction from the name `to_*` and stated it in the option the user selected. The user accepted the option but never confirmed the direction in their own words.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The implementation reads `to_x` as "the read moved to base x at this position".
+2. If the intended meaning was the reference base instead, the columns answer the mirrored question.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/usage.qmd:163-164` — the shipped wording: "splits each position's `mismatch` count by the read (destination) base".
+
+:::
+
+## conclusion
+
+### error.parquet carries a per-position destination-base split
+
+```
+level: high
+```
+
+#### reason
+
+The schema and values are verified by a test that reads the written Parquet file, and the full suite passes.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The wider schema is additive, so column-name-based readers keep working.
+2. The cost matches the feasibility estimate: four integer increments per substitution event and a small memory and file-size increase.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- `pixi run -e dev test` → `133 passed in 1.36s` (2 new/extended test bodies included).
+- `pixi run -e dev lint` → `All checks passed!`
+
+:::
+
+## recommendation
+
+### L: notify error.parquet consumers of the wider schema
+
+```
+level: medium
+```
+
+#### reason
+
+The schema change is additive but visible, and any strict-schema consumer breaks on the new columns. I have not audited who those consumers are.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Tell downstream users of `error.parquet` about the four new columns before they upgrade.
+2. Name-based column selection and `pl.read_parquet` are unaffected.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### L: consider a version bump and release note for the wider error.parquet schema
+
+```
+level: medium
+```
+
+#### reason
+
+The repo sits at 0.2.0 and the new columns are a user-visible feature, but the bump is a maintainer decision I have not verified against any release plan.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Decide the bump size (patch vs minor) and add the schema change to the release notes when cutting the next release.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### suite size and runtime after the change
+
+```
+level: high
+```
+
+#### reason
+
+Both numbers come verbatim from the final verification run this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 133 tests pass in 1.36 s.
+2. Ruff reports no findings.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+133 passed in 1.36s
+All checks passed!
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### impact grep missed tests/test_parquet_writer.py
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. I grepped only `README.md`, `tests/test_complex.py`, and `tests/test_public_api.py` for `error.parquet` and `PositionalError` mentions.
+2. The first test run then failed on two `PositionalErrorStats` tests in `tests/test_parquet_writer.py`, which my grep never covered.
+3. The better action was to grep the whole `tests/` tree for `PositionalErrorStats` before editing the signature.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+FAILED tests/test_parquet_writer.py::test_positional_error_stats_to_dataframe
+FAILED tests/test_parquet_writer.py::test_positional_error_stats_write_and_read_parquet
+2 failed, 131 passed in 3.86s
+```
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                            |
+|---------|-----------------------------------------------------------------|
+| updated | `src/sam_tagger/stats/error_stats.py`                           |
+| updated | `src/sam_tagger/parquet_writer.py`                              |
+| updated | `tests/test_stats.py`                                           |
+| updated | `tests/test_parquet_writer.py`                                  |
+| updated | `docs/usage.qmd`                                                |
+| created | `docs/plans/20261013-173612_add-error-out-to-cols.plan.qmd`     |
+| created | `docs/plans/20261013-173948_add-error-out-to-cols.report.qmd`   |
+| created | `docs/misc/requirements_audit.qmd`                              |
+| created | `docs/misc/next_and_recommendation.qmd`                         |
+
+1. Git: `9819fe4` `feat: split error.parquet mismatch counts by read base` (source, tests, usage docs).
+2. Git: this report, the rewritten plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261013-173612 plan](20261013-173612_add-error-out-to-cols.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+[main 9819fe4] feat: split error.parquet mismatch counts by read base
+ 5 files changed, 96 insertions(+), 17 deletions(-)
+```
+
+:::
+
+## other
+
+None

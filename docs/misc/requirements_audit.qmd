@@ -1,0 +1,39 @@
+---
+title: "Requirements Audit"
+author: "Yun Jiang"
+---
+
+## add read-base split columns to error.parquet
+
+```
+level: medium
+date: 2026-10-13
+```
+
+### description
+
+The user asked whether the `--error-out` Parquet can also carry
+`to_a`/`to_c`/`to_g`/`to_t` and whether that is cheap. After a feasibility
+answer, the user chose the 4-column option (no `to_n`). `to_x` counts
+in-region substitutions at each 1-based position whose read (destination)
+base is x.
+
+### result
+
+1. Implemented `to_a`/`to_c`/`to_g`/`to_t` columns in `error.parquet` (9-column schema).
+2. Answered the cost question: negligible CPU, small memory, modest file growth.
+3. Documented the N-base semantics in `docs/usage.qmd`.
+
+### change
+
+Files:
+- updated: `src/sam_tagger/stats/error_stats.py`, `src/sam_tagger/parquet_writer.py`
+- updated: `tests/test_stats.py`, `tests/test_parquet_writer.py`, `docs/usage.qmd`
+- created: `docs/plans/20261013-173612_add-error-out-to-cols.plan.qmd`,
+  `docs/plans/20261013-173948_add-error-out-to-cols.report.qmd`,
+  `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Git:
+- `9819fe4` feat: split error.parquet mismatch counts by read base
+
+Packages/Environments: None
