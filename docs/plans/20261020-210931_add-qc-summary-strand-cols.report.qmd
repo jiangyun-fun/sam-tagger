@@ -1,0 +1,473 @@
+---
+title: "Add forward/reverse strand columns to qc-summary — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### strand read-count columns in qc-summary
+
+```
+level: high
+```
+
+#### reason
+
+New tests read the written Parquet and assert the split, the identity, and the zero-read case; the full suite, ruff, and pyright pass this session; an end-to-end 200k-read run shows zero identity violations.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `qc-summary` now writes 18 columns: `forward_reads`, `reverse_reads`, `forward_pct` join the schema right after `total_reads`.
+2. The counts read the FLAG `0x10` bit (`record.is_reverse`) inside the existing single pass — no new CLI flag, no extra BAM pass.
+3. Strand needs no config, so no-config runs populate the new columns (like `total_reads`/`fl`).
+
+#### before
+
+A user could not get forward/reverse read counts from sam-tagger at all. `samtools flagstat` reports no strand split (verified this session on a 50%-reverse BAM), and per-reference splits needed indexed `samtools view -c` queries, one per reference.
+
+#### after
+
+One Parquet digest answers the per-reference strand question next to `total_reads`, `fl_pct`, and the error columns.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/qc_summary.py:27-28` — `forward`/`reverse` fields on `_QcCounts`.
+- `src/sam_tagger/stats/qc_summary.py:43-45` — the three `_SCHEMA` entries.
+- `src/sam_tagger/stats/qc_summary.py:72-77` — `tally_strand` buckets by `is_reverse`.
+- `src/sam_tagger/stats/qc_summary.py:118-120` — column appends; `forward_pct` guards the zero-total division.
+- `src/sam_tagger/lib.py:532` — the tally call beside `qc.tally_total`.
+- `tests/test_qc_summary.py:216-260` — `test_qc_summary_strand_columns` (FLAG 16, secondary 0x100, supplementary 0x800|16, unmapped excluded) and `test_qc_summary_strand_all_reverse`.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### no reverse_pct column
+
+```
+level: low
+```
+
+#### reason
+
+The scope the user approved names only `forward_pct`, mirroring the existing `fl_pct` pattern, and the implementation adds exactly that column.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `reverse_pct` is absent by scope choice; it is derivable as `1 - forward_pct`.
+2. Adding it later is one schema entry and one append.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/plans/20261020-210605_add-qc-summary-strand-cols.plan.qmd` — the approved scope lists three columns only.
+
+:::
+
+## caveat
+
+### strand counts include secondary and supplementary alignments
+
+```
+level: medium
+```
+
+#### reason
+
+The counting loop filters only unmapped records, and a test pins a secondary (0x100) and a supplementary (0x800|16) record inside the counts; the semantics are written into the user docs.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `forward_reads + reverse_reads == total_reads` holds in every row — both sides count the same record set.
+2. A consumer comparing against primary-only samtools counts must filter, because minimap2 emits secondary alignments by default.
+3. Unmapped reads carry no strand and are excluded.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_qc_summary.py:222-224` — r3 (FLAG 256) lands in `forward_reads`, r4 (FLAG 2064) in `reverse_reads`, unmapped r5 excluded from `total_reads`.
+- `docs/usage.qmd:212-227` — the shipped wording on the counting semantics and the row identity.
+
+:::
+
+## assumption
+
+### forward means FLAG 0x10 unset
+
+```
+level: medium
+```
+
+#### reason
+
+The flag-bit mapping is standard SAM semantics; the operative fact for this report is that the implementation maps bit 0x10 exactly as the tests specify, and those tests pass.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `forward_reads` counts mapped records with FLAG `0x10` unset; `reverse_reads` counts records with the bit set.
+2. The strand orientation refers to the read-to-reference alignment direction, not to library strandedness.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+tests/test_qc_summary.py::test_qc_summary_strand_columns PASSED
+  forward_reads == 2 (FLAG 0 + FLAG 256), reverse_reads == 2 (FLAG 16 + FLAG 2064)
+```
+
+:::
+
+## conclusion
+
+### the feature is delivered, additive, and cheap as assessed
+
+```
+level: high
+```
+
+#### reason
+
+The full verification chain is green and the cost claim from the assessment phase is confirmed by measurement, not estimation.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. The per-read cost measured earlier this session is ~25 ns/read (5 ms per 200k reads) for the strand branch — noise inside a BAM-decode-dominated loop.
+2. The schema change is additive (15 → 18 columns); consumers selecting columns by name are unaffected.
+3. An end-to-end run over a 200k-read, 100-reference BAM produced zero `forward + reverse != total_reads` violations.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+pixi run -e dev test    → 135 passed
+pixi run -e dev lint    → All checks passed!
+pixi run -e dev typecheck → 0 errors, 0 warnings, 0 informations
+end-to-end /tmp bench: shape (100, 18), identity violations: 0
+```
+
+:::
+
+## recommendation
+
+### M: notify downstream consumers of the additive qc-summary schema
+
+```
+level: medium
+```
+
+#### reason
+
+The schema grew 15 → 18 columns; strict-schema consumers break on additive changes too. I have not audited who those consumers are.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Tell qc-summary Parquet consumers about the three new columns before they upgrade.
+2. The same notice still applies to the v0.3.0 `error.parquet` `to_*` columns.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### L: prefer read-time column projection over a writer-side column-selection flag
+
+```
+level: low
+```
+
+#### reason
+
+Demonstrated this session: `pl.read_parquet(path, columns=[...])` decodes only the named column chunks, so a configurable output schema would duplicate a capability the format already provides.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a narrower view is wanted, project columns in the consuming pipeline step.
+2. A writer-side `--columns` flag would fork the fixed I/O contract and the test matrix.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Session demo: `pl.read_parquet('/tmp/qc_demo.parquet', columns=['seq_name','total_reads','fl'])` returned a 3-column frame from a 15-column file.
+
+:::
+
+### L: whole-file strand counts need no sam-tagger run
+
+```
+level: low
+```
+
+#### reason
+
+The per-reference digest is the tool's value; two global numbers are one samtools command away.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `samtools view -c -f 16` / `-F 16` gives the two whole-file counts directly.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: decide the release that carries the strand columns
+
+```
+level: medium
+```
+
+#### reason
+
+The feature is committed but unreleased; version bumps and releases are maintainer decisions in this repo (v0.3.0 was cut on explicit request).
+
+#### description
+
+```
+type: [text]
+```
+
+1. Choose the bump size (minor fits a new user-visible output feature, per the v0.2.0/v0.3.0 precedent) and add the strand columns to the release notes when cutting the next release.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### suite size and runtime after the change
+
+```
+level: high
+```
+
+#### reason
+
+Both numbers come verbatim from the final verification run this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 135 tests pass (133 before; 2 new strand tests).
+2. Ruff and pyright report no findings.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+135 passed
+All checks passed!
+0 errors, 0 warnings, 0 informations
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### design settled through evidence before any code
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. Placement (qc-summary), the keep-both redundancy direction, and the rejection of configurable columns were each decided with the user after measurement (strand cost benchmark, flagstat check, denominator audit, compute-once proof).
+2. Implementation followed plan and TDD: tests written first (RED: `KeyError: 'forward_reads'`), then the three-part change, then the full verification chain.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+FAILED tests/test_qc_summary.py::test_qc_summary_strand_columns - KeyError: 'forward_reads'
+→ (implementation) → 135 passed
+```
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                                  |
+|---------|-----------------------------------------------------------------------|
+| updated | `src/sam_tagger/stats/qc_summary.py`                                  |
+| updated | `src/sam_tagger/lib.py`                                               |
+| updated | `tests/test_qc_summary.py`                                            |
+| updated | `docs/usage.qmd`                                                      |
+| created | `docs/plans/20261020-210605_add-qc-summary-strand-cols.plan.qmd`     |
+| created | `docs/plans/20261020-210931_add-qc-summary-strand-cols.report.qmd`   |
+| updated | `docs/misc/requirements_audit.qmd`                                    |
+| updated | `docs/misc/next_and_recommendation.qmd`                               |
+
+1. Git: `63f8a48` `feat: add forward/reverse strand read columns to qc-summary` (source, tests, usage docs).
+2. Git: this report, the as-built plan rewrite, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261020-210605 plan](20261020-210605_add-qc-summary-strand-cols.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+[main 63f8a48] feat: add forward/reverse strand read columns to qc-summary
+ 4 files changed, 72 insertions(+), 4 deletions(-)
+```
+
+:::
+
+## other
+
+None

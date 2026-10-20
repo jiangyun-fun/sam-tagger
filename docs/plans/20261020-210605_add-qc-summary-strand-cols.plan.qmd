@@ -1,0 +1,79 @@
+---
+title: "Plan: add qc-summary strand columns"
+author: "Yun Jiang"
+date: 2026-10-20
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧭</text></svg>">
+---
+
+# Objective
+
+Add per-reference strand counts to `qc-summary`: `forward_reads`,
+`reverse_reads`, and `forward_pct` columns in the existing one-row-per-reference
+Parquet digest. Counts read the FLAG 0x10 bit (`record.is_reverse`) during the
+existing single pass; no new CLI flag.
+
+# Scope
+
+Decisions confirmed with the user on 2026-10-20:
+
+1. Placement: qc-summary columns (not an annotate `--strand-stats` file).
+2. Keep all four annotate stats flags; keep every existing qc-summary column
+   (keep-both direction).
+3. No configurable output columns — consumers project Parquet columns at read
+   time.
+4. Counting semantics: mapped records only (unmapped skipped by the loop
+   already); secondary (0x100) and supplementary (0x800) alignments included,
+   so `forward_reads + reverse_reads == total_reads` in every row.
+5. `forward_pct = forward_reads / total_reads` (0.0 when total is 0), mirroring
+   `fl_pct`.
+
+# Planned steps (as-built: executed exactly as planned, 2026-10-20)
+
+1. Tests first (`tests/test_qc_summary.py`): `test_qc_summary_strand_columns`
+   (FLAG 0/16, secondary 0x100, supplementary 0x800|16, unmapped excluded,
+   identity, zero-read refs) and `test_qc_summary_strand_all_reverse`. RED
+   confirmed: `KeyError: 'forward_reads'`.
+2. `src/sam_tagger/stats/qc_summary.py`: `forward`/`reverse` on `_QcCounts`,
+   `tally_strand(ref, is_reverse)`, three `_SCHEMA` entries after
+   `total_reads`, appends in `write_results` with a zero-total guard.
+3. `src/sam_tagger/lib.py`: `qc.tally_strand(ref_name, record.is_reverse)`
+   beside `qc.tally_total(ref_name)` in `run_qc_summary`.
+4. `docs/usage.qmd`: 18-column list, no-config note, and the counting
+   semantics (mapped-only, secondary/supplementary included, row identity).
+5. Verify: 135 tests passed, ruff clean, pyright clean; end-to-end 200k-read
+   run showed zero `forward + reverse != total_reads` violations.
+6. Commit `63f8a48` `feat: add forward/reverse strand read columns to
+   qc-summary`; report at
+   [20261020-210931](20261020-210931_add-qc-summary-strand-cols.report.qmd).
+
+# Files to touch
+
+- `src/sam_tagger/stats/qc_summary.py` — counts, schema, tally, write.
+- `src/sam_tagger/lib.py` — one tally call in the qc-summary loop.
+- `tests/test_qc_summary.py` — new test(s).
+- `docs/usage.qmd` — column list + no-config wording.
+
+# Risks
+
+- Additive schema change for downstream consumers — same shape as the v0.3.0
+  `to_*` precedent (additive columns; consumers selecting by name are safe).
+- None for performance: measured ~25 ns/read for the strand branch (5 ms per
+  200k reads).
+
+# Verification criteria
+
+1. New tests pass; full suite green.
+2. `forward_reads + reverse_reads == total_reads` holds on mixed-flag BAMs,
+   including secondary/supplementary records.
+3. Zero-read refs emit 0/0/0.0 without division errors.
+4. No-config runs populate the strand columns.

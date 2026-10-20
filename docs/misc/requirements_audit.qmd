@@ -70,3 +70,188 @@ Git:
 - `aa52fcc` chore(release): bump version to 0.3.0 (pushed, tag `v0.3.0`)
 
 Packages/Environments: None
+
+## assess forward/reverse strand read-count output
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user proposed adding a parameter that writes a file counting reads on
+the forward and reverse strands, and asked whether it is cheap and whether
+the design is sound. I read this as a request for an evidence-backed
+assessment (plus my own position, with room to refute) before any
+implementation.
+
+### result
+
+1. Answered: cheap — measured ~25 ns/read (5 ms per 200k reads) for the is_reverse counter; all candidate loops already visit every mapped record.
+2. Answered: agreed on the metric, with a placement pushback — qc-summary columns (~20 LoC) beat a new annotate output file (~60 LoC) unless the pipeline runs annotate only.
+3. Answered: verified pysam.flagstat on a 50%-reverse BAM reports no strand split, so flagstat cannot replace the feature; samtools view -c -f/-F 16 covers only global counts.
+4. Answered: pinned semantics — mapped records only; include secondary/supplementary alignments so forward + reverse equals total_reads.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## confirm strand placement; assess annotate stats-flag removal
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user confirmed qc-summary as the home for the forward/reverse strand
+read counts, then asked whether the four annotate stats flags
+(--fl-stats/--tc-stats/--ap-stats/--nb-stats) should be deleted since
+qc-summary appears to subsume them.
+
+### result
+
+1. Answered: placement confirmed — forward/reverse counts will be columns in qc-summary.parquet.
+2. Answered: recommended NOT deleting now — fl/tc/ap stats use the same shared judgement functions as qc-summary (redundant), but --nb-stats has no qc-summary equivalent.
+3. Answered: deletion breaks three surfaces at once (CLI flags, output files, Python API StatsCollector export); recommended deprecate-then-remove if pursued.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## explain qc-summary column computation basis
+
+```
+level: low
+date: 2026-10-20
+```
+
+### description
+
+The user asked whether the qc-summary output columns are produced by
+counting the tags that annotate wrote, or by recomputing each judgement
+per read.
+
+### result
+
+1. Answered: recomputed per read — qc-summary never reads sam-tagger tags; it uses CIGAR, read seq, and minimap2's cs tag through the same shared functions annotate uses.
+2. Answered: flagged one definitional asymmetry — error numerator is inner-region-gated, aligned_bases denominator is the full cs span.
+
+### change
+
+None
+
+## confirm tag-plus-stats computes each read once
+
+```
+level: low
+date: 2026-10-20
+```
+
+### description
+
+The user asked whether, when a *-stats flag runs together with its
+--add-* tag flag, the per-read judgement is computed twice (once for the
+tag, once for the stat).
+
+### result
+
+1. Answered: computed once — verified empirically for FL (300 records, --add-fl + --fl-stats both on, 300 judgement calls) and by code structure for TC/AP/NB.
+2. Answered: stats piggyback on the tagging pass at zero extra per-read compute; only the Parquet write is additional work.
+
+### change
+
+None
+
+## assess stripping fl-tc-ap columns from qc-summary
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user proposed resolving the redundancy the other way around: delete
+the fl/fl_pct/on_target/on_target_pct/ap_* computations from qc-summary,
+because --add-* plus --*-stats on annotate is the dominant use case.
+
+### result
+
+1. Answered: recommended AGAINST stripping — annotate stats Parquets carry (seq_name, count) only, so fl_pct/on_target_pct would lose their only home.
+2. Answered: qc-summary's stated purpose is the joined digest (README); stripping pushes consumers to glue 4 files plus per-ref totals by hand.
+3. Answered: for the full QC picture, annotate-stats + error-stats and annotate + qc-summary cost the same 2 BAM passes; the difference is output shape, not pass count.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## decide keep-both; assess configurable qc-summary columns
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user settled the redundancy direction as keep-both (full qc-summary
+digest plus all four annotate stats flags), then asked whether qc-summary
+should gain a parameter making the output columns configurable.
+
+### result
+
+1. Answered: keep-both recorded — no flags removed, no qc-summary columns stripped.
+2. Answered: recommended AGAINST a column-selection flag — parquet readers project columns natively at read time (demonstrated with polars columns=), and a configurable schema would break the fixed-I/O-contract design and fork the test matrix.
+3. Answered: the no-config mode already tiers the output (total/fl/fl_pct populated, rest zero), so a lite view needs no new flag.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## implement qc-summary strand read-count columns
+
+```
+level: high
+date: 2026-10-20
+```
+
+### description
+
+Continuation of the strand-count requirement. After confirming placement
+(qc-summary), the keep-both redundancy direction, and rejecting
+configurable output columns, the user approved implementation as scoped.
+
+### result
+
+1. Implemented forward_reads/reverse_reads/forward_pct in qc-summary (18-column schema); mapped records only, secondary/supplementary included so fwd+rev equals total_reads.
+2. Verified: 135 tests, ruff, pyright all green; end-to-end 200k-read run shows zero identity violations.
+3. Documented the columns and counting semantics in docs/usage.qmd.
+
+### change
+
+Files:
+- updated: `src/sam_tagger/stats/qc_summary.py`, `src/sam_tagger/lib.py`,
+  `tests/test_qc_summary.py`, `docs/usage.qmd`
+- created: `docs/plans/20261020-210605_add-qc-summary-strand-cols.plan.qmd`,
+  `docs/plans/20261020-210931_add-qc-summary-strand-cols.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `63f8a48` feat: add forward/reverse strand read columns to qc-summary
+
+Packages/Environments: None
