@@ -1,0 +1,57 @@
+---
+title: "Plan: release v0.4.0"
+author: "Yun Jiang"
+date: 2026-10-20
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Objective
+
+Cut v0.4.0 so the published artifact carries the four unreleased output
+features. Minor bump: new user-visible outputs, additive schemas, no
+breaking change — the v0.2.0/v0.3.0 precedent.
+
+# Scope — what ships in v0.4.0
+
+1. `63f8a48` qc-summary strand columns (15 → 18-column digest).
+2. `91fbc63` `--length-dist-out` read_len/dm distributions (primary-only).
+3. `4c6bb39` `smoothed_deletion` (needs `--fasta`; null without).
+4. `c371d52` `total` + 8 rate columns in error.parquet (9 → 19 columns;
+   samtools depth -J parity test). Plus `3f767ca` (dev-env samtools).
+
+# Planned steps
+
+1. Bump `0.3.0` → `0.4.0` in `pyproject.toml`, `pixi.toml`,
+   `src/sam_tagger/__init__.py`.
+2. Verify `sam-tagger --version` reports 0.4.0 locally.
+3. Commit `chore(release): bump version to 0.4.0`.
+4. Annotated tag `v0.4.0`; push `main` + tag (triggers `release.yml`,
+   which builds sdist + wheel on tag push).
+5. Create the GitHub Release with curated notes (features, semantics,
+   upgrade notes for additive schemas).
+6. Watch the release workflow to conclusion.
+7. Report + rewrite this plan as-built; audit + rolling-state update.
+
+# Risks
+
+- Push publishes nine commits at once (four features + docs) — all verified
+  green this session (150 tests at HEAD).
+- Release notes must state the `--fasta` and parity conditions so consumers
+  are not surprised by null columns or universe differences.
+
+# Verification criteria
+
+1. `sam-tagger --version` → 0.4.0.
+2. Tag `v0.4.0` pushed; release workflow concludes success; artifacts
+   attached to the GitHub Release.
+3. Release page shows the curated notes.
