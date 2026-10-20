@@ -14,8 +14,11 @@ format = "ruff format ."
 typecheck = "pyright"
 build = "python -m build"
 
-[environments]
-dev = ["dev"]
+[environments.dev]
+features = ["dev"]
+
+[environments.dev.dependencies]
+samtools = ">=1.24,<2"
 
 [dependencies]
 python = "3.13.*"
