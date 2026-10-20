@@ -173,6 +173,13 @@ class ErrorStatsArgs:
 
     input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags).")]
     config: Annotated[Path, Parameter(help="CSV config with per-ref error_primer_*_len.")]
+    fasta: Annotated[
+        Path | None,
+        Parameter(
+            help="Indexed reference FASTA (samtools faidx). Enables the smoothed_deletion "
+            "column; without it the column is null.",
+        ),
+    ] = None
     prefix: Annotated[
         Path | None,
         Parameter(

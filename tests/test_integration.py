@@ -16,6 +16,7 @@ from pathlib import Path
 
 import polars as pl
 import pysam
+import pytest
 from _helpers import Setup, setup_env
 
 from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs
@@ -465,3 +466,40 @@ class TestExtraction:
         assert records[0].head == "@subread_test"
         assert records[0].seq == "AANNCCCCCCC"
         assert records[0].qual == "@@##IIIIIII"
+
+
+# --- error-stats smoothed_deletion via --fasta (end-to-end wiring) ---
+
+
+def test_error_stats_smoothed_deletion_with_fasta(tmp_path: Path) -> None:
+    hdr = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:hp\tLN:9"
+    seq, qual = "TTTAATTT", "I" * 8
+    sam = (
+        f"p4\t0\thp\t1\t60\t3M1D5M\t*\t0\t0\t{seq}\t{qual}\tcs:Z::3-a:5\n"
+        f"p5\t0\thp\t1\t60\t4M1D4M\t*\t0\t0\t{seq}\t{qual}\tcs:Z::4-a:4\n"
+    )
+    setup = setup_env(
+        tmp_path,
+        {"hp": {"error_primer_start_len": 0, "error_primer_end_len": 0}},
+        hdr,
+        sam,
+        fasta={"hp": "TTTAAATTT"},
+    )
+    assert setup.config_path is not None
+    prefix = tmp_path / "e"
+    run_error_stats(
+        ErrorStatsArgs(
+            input_bam=setup.input_bam,
+            config=setup.config_path,
+            prefix=prefix,
+            fasta=tmp_path / "ref.fa",
+        )
+    )
+    df = pl.read_parquet(tmp_path / "e.error.parquet")
+    smoothed = dict(
+        zip(df["position"].to_list(), df["smoothed_deletion"].to_list(), strict=True)
+    )
+    assert smoothed[4] == pytest.approx(2 / 3)
+    assert smoothed[5] == pytest.approx(2 / 3)
+    assert smoothed[6] == pytest.approx(2 / 3)
+    assert df["smoothed_deletion"].null_count() == 0

@@ -18,6 +18,7 @@ from sam_tagger.processing import (
     count_cs_error_events,
     count_errors_from_parsed,
     extract_sub_read_for_ref_region,
+    homopolymer_run_span,
     is_on_target,
     is_on_target_parsed,
     parse_cs_tag,
@@ -212,3 +213,21 @@ def test_write_fastq_entry(tmp_path) -> None:
     assert lines[1] == "ACGT"
     assert lines[2] == "+"
     assert lines[3] == "?@AB"  # Phred+33: 30+33=63='?', 31+33=64='@', etc.
+
+
+def test_homopolymer_run_span() -> None:
+    ref = "TTTAAATTT"
+    # AAA run: 0-based [3, 6)
+    assert homopolymer_run_span(ref, 3) == (3, 6)
+    assert homopolymer_run_span(ref, 4) == (3, 6)
+    assert homopolymer_run_span(ref, 5) == (3, 6)
+    # T runs at both sequence edges
+    assert homopolymer_run_span(ref, 0) == (0, 3)
+    assert homopolymer_run_span(ref, 2) == (0, 3)
+    assert homopolymer_run_span(ref, 6) == (6, 9)
+    assert homopolymer_run_span(ref, 8) == (6, 9)
+    # single-base run (no neighbors equal)
+    assert homopolymer_run_span("ACGT", 1) == (1, 2)
+    assert homopolymer_run_span("ACGT", 2) == (2, 3)
+    # whole-sequence homopolymer
+    assert homopolymer_run_span("AAAA", 2) == (0, 4)

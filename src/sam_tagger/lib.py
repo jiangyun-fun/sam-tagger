@@ -405,7 +405,14 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
                 "error-stats: config has no error_primer_start_len / error_primer_end_len entries."
             )
         paths = ErrorStatsOutputPaths.from_args(args)
-        collector = ErrorStatsCollector(cfg.error, paths)
+        faidx_reader = pysam.FastaFile(str(args.fasta)) if args.fasta is not None else None
+
+        def _get_ref_seq(name: str) -> str | None:
+            if faidx_reader is None:
+                return None
+            return faidx_reader.fetch(name).upper()
+
+        collector = ErrorStatsCollector(cfg.error, paths, get_ref_seq=_get_ref_seq)
 
         logger.info("Processing BAM records for error statistics...")
         watch = _CsWatch(needs_cs=True)
@@ -426,6 +433,8 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
         logger.info("Processed {} records.", record_count)
         watch.summarize()
         collector.write_results()
+        if faidx_reader is not None:
+            faidx_reader.close()
     finally:
         bam_reader.close()
 

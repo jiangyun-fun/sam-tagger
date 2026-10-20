@@ -220,9 +220,11 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
         assert p.exists()
     df = pl.read_parquet(paths.error)
     assert df.columns == [
-        "seq_name", "position", "insertion", "deletion", "mismatch",
+        "seq_name", "position", "insertion", "deletion", "smoothed_deletion", "mismatch",
         "to_a", "to_c", "to_g", "to_t",
     ]
+    # no get_ref_seq -> the whole smoothed column is null
+    assert df["smoothed_deletion"].null_count() == df.height
     row = df.filter(pl.col("position") == 21)  # *ac at 0-based 20 -> 1-based 21
     assert row.height == 1
     assert row["mismatch"].item() == 1
@@ -318,3 +320,80 @@ def test_pileup_quality_filter(tmp_path: Path) -> None:
     out = tmp_path / "pile.parquet"
     col.write_results(out)
     assert pl.read_parquet(out).height == 0  # all bases below qual threshold
+
+
+# --------------------------------------------------------------------------
+# smoothed_deletion (homopolymer re-attribution)
+# --------------------------------------------------------------------------
+
+_HP_REF = "TTTAAATTT"
+
+
+def _hp_params(inner_end: int = 9) -> dict[str, ErrorParams]:
+    return {"hp": ErrorParams(seq_len=9, inner_region_start=0, inner_region_end=inner_end)}
+
+
+def _hp_get(seq: str):
+    return {"hp": seq}.get
+
+
+def test_smoothed_deletion_user_example(tmp_path: Path) -> None:
+    # Same biological deletion placed at two different positions by two alignments.
+    col = ErrorStatsCollector(_hp_params(), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF))
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    st = col._stats_by_ref["hp"]
+    assert st.positional_errors[4].smoothed_deletion == pytest.approx(2 / 3)
+    assert st.positional_errors[5].smoothed_deletion == pytest.approx(2 / 3)
+    assert st.positional_errors[6].smoothed_deletion == pytest.approx(2 / 3)
+    # plain deletion still carries the placement artifact; mass is conserved
+    assert st.positional_errors[4].deletions == 1
+    assert st.positional_errors[5].deletions == 1
+    total_plain = sum(e.deletions for e in st.positional_errors.values())
+    total_smooth = sum(e.smoothed_deletion or 0.0 for e in st.positional_errors.values())
+    assert total_smooth == pytest.approx(total_plain)
+
+
+def test_smoothed_deletion_two_bases(tmp_path: Path) -> None:
+    # TTTATTT over TTTAAATTT: two As deleted from the AAA run -> 2/3 at each position.
+    col = ErrorStatsCollector(_hp_params(), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF))
+    col.tally_from_parsed(parse_cs_tag(":3-aa:3"), 0, "hp", "r1")
+    st = col._stats_by_ref["hp"]
+    for pos in (4, 5, 6):
+        assert st.positional_errors[pos].smoothed_deletion == pytest.approx(2 / 3)
+
+
+def test_smoothed_deletion_non_homopolymer(tmp_path: Path) -> None:
+    # Deleting the C of ACGT (run length 1) smooths to itself only.
+    col = ErrorStatsCollector(
+        {"ref1": ErrorParams(seq_len=100, inner_region_start=0, inner_region_end=100)},
+        _err_paths(tmp_path),
+        get_ref_seq={"ref1": "A" * 20 + "CGTT" + "A" * 76}.get,
+    )
+    col.tally_from_parsed(parse_cs_tag(":20-c:79"), 0, "ref1", "r1")
+    st = col._stats_by_ref["ref1"]
+    assert st.positional_errors[21].smoothed_deletion == pytest.approx(1.0)
+    assert st.positional_errors[21].deletions == 1
+
+
+def test_smoothed_deletion_region_clipping(tmp_path: Path) -> None:
+    # Inner region [0, 5): the AAA run (0-based 3-5) loses its last position.
+    col = ErrorStatsCollector(_hp_params(inner_end=5), _err_paths(tmp_path),
+                              get_ref_seq=_hp_get(_HP_REF))
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1")
+    st = col._stats_by_ref["hp"]
+    assert st.positional_errors[4].smoothed_deletion == pytest.approx(1 / 3)
+    assert st.positional_errors[5].smoothed_deletion == pytest.approx(1 / 3)
+    assert 6 not in st.positional_errors or not st.positional_errors[6].smoothed_deletion
+
+
+def test_smoothed_deletion_null_without_ref_seq(tmp_path: Path) -> None:
+    # No get_ref_seq -> the written column is null everywhere, others unchanged.
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(_hp_params(), paths)
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1")
+    col.write_results()
+    df = pl.read_parquet(paths.error)
+    assert "smoothed_deletion" in df.columns
+    assert df["smoothed_deletion"].null_count() == df.height
+    assert df["deletion"].sum() == 1

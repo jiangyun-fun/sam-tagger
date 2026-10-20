@@ -7,6 +7,7 @@ decoupled — ``ErrorStatsOutputPaths.from_args`` takes an ``ErrorStatsArgs``
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,12 +21,14 @@ from sam_tagger.parquet_writer import (
     SingleDeletionStats,
     TypedStats,
 )
+from sam_tagger.processing import homopolymer_run_span
 
 
 @dataclass(slots=True)
 class _PositionalErrorCounts:
     insertions: int = 0
     deletions: int = 0
+    smoothed_deletion: float | None = None
     mismatches: int = 0
     single_deletions: int = 0
     to_a: int = 0
@@ -138,16 +141,28 @@ _BASE_ORDER = ["A", "C", "G", "T"]
 
 
 class ErrorStatsCollector:
-    """Collects error statistics across all references from CS tags."""
+    """Collects error statistics across all references from CS tags.
+
+    ``get_ref_seq`` (optional) maps a reference name to its sequence. When set,
+    deletions also accumulate ``smoothed_deletion``: each deleted base spreads
+    1/run_len over the maximal same-base reference run containing it, clipped
+    to the error inner region. Without it, ``smoothed_deletion`` stays null —
+    the cs tag's ``:`` ops carry lengths only, so runs are unknowable without
+    the reference.
+    """
 
     def __init__(
         self,
         error_params_map: dict[str, ErrorParams],
         paths: ErrorStatsOutputPaths | None = None,
+        get_ref_seq: Callable[[str], str | None] | None = None,
     ) -> None:
         self._stats_by_ref: dict[str, _PerRefErrorStats] = {}
         self._error_params_map = error_params_map
         self._paths = paths
+        self._get_ref_seq = get_ref_seq
+        self._ref_seq_cache: dict[str, str | None] = {}
+        self._warned_ref_mismatch = False
 
     def per_base_counts(self, ref_name: str) -> tuple[int, int, int, int] | None:
         """Return ``(aligned_bases, mismatches, insertions, deletions)`` for a ref.
@@ -170,6 +185,52 @@ class ErrorStatsCollector:
             entry = _PositionalErrorCounts()
             positional_errors[key] = entry
         return entry
+
+    def _smooth_deletion(
+        self,
+        ref_stats: _PerRefErrorStats,
+        ref_name: str,
+        pos0: int,
+        base: int,
+        params: ErrorParams,
+    ) -> None:
+        """Spread 1/run_len over the homopolymer run containing a deleted base.
+
+        No reference access (``_get_ref_seq`` unset) -> no-op, the column stays
+        null. Mass landing outside the inner region is dropped, mirroring how
+        plain per-position deletions clip.
+        """
+        if self._get_ref_seq is None:
+            return
+        if ref_name not in self._ref_seq_cache:
+            self._ref_seq_cache[ref_name] = self._get_ref_seq(ref_name)
+        ref_seq = self._ref_seq_cache[ref_name]
+        if not ref_seq or not (0 <= pos0 < len(ref_seq)):
+            return
+        # cs tags carry lowercase bases; the fasta sequence is uppercased on fetch.
+        base_ch = chr(base).lower()
+        start0, end0 = homopolymer_run_span(ref_seq, pos0)
+        run_len = end0 - start0
+        if run_len <= 1 or ref_seq[pos0].lower() != base_ch:
+            if ref_seq[pos0].lower() != base_ch and not self._warned_ref_mismatch:
+                self._warned_ref_mismatch = True
+                logger.warning(
+                    "FASTA base at {}:{} disagrees with the cs-deleted base — "
+                    "is --fasta the same reference the BAM was aligned to? "
+                    "Further mismatches will pass silently.",
+                    ref_name,
+                    pos0 + 1,
+                )
+            entry = ref_stats.positional_errors.get(pos0 + 1)
+            if entry is None:
+                entry = self._get_or_create_pos(ref_stats.positional_errors, pos0 + 1)
+            entry.smoothed_deletion = (entry.smoothed_deletion or 0.0) + 1.0
+            return
+        share = 1.0 / run_len
+        for q in range(start0, end0):
+            if params.inner_region_start <= q < params.inner_region_end:
+                entry = self._get_or_create_pos(ref_stats.positional_errors, q + 1)
+                entry.smoothed_deletion = (entry.smoothed_deletion or 0.0) + share
 
     def _get_or_create_ref_stats(self, ref_name: str) -> _PerRefErrorStats:
         ref_stats = self._stats_by_ref.get(ref_name)
@@ -267,6 +328,7 @@ class ErrorStatsCollector:
                             idx = _base_to_idx(base)
                             if idx is not None:
                                 ref_stats.deletion_summary[idx] += 1
+                            self._smooth_deletion(ref_stats, ref_name, pos_of_del, base, params)
                 current_pos += length
 
         aligned_len = current_pos - start_ref_pos
@@ -302,6 +364,14 @@ class ErrorStatsCollector:
         pos_stats = PositionalErrorStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
+        # null = smoothing unavailable (no --fasta); with a reference, eventless
+        # positions read 0.0 like the integer columns.
+        if self._get_ref_seq is None:
+            def smoothed(v: float | None) -> float | None:
+                return v
+        else:
+            def smoothed(v: float | None) -> float | None:
+                return v if v is not None else 0.0
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
             seq_len = self._error_params_map[seq_name].seq_len
@@ -312,6 +382,7 @@ class ErrorStatsCollector:
                     i,
                     counts.insertions,
                     counts.deletions,
+                    smoothed(counts.smoothed_deletion),
                     counts.mismatches,
                     counts.to_a,
                     counts.to_c,

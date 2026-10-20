@@ -102,6 +102,23 @@ def calculate_ref_consuming_length_before_end_soft(cigartuples: list[tuple[int, 
     return total
 
 
+def homopolymer_run_span(ref_seq: str, pos0: int) -> tuple[int, int]:
+    """Maximal same-base run `[start0, end0)` on ``ref_seq`` containing 0-based ``pos0``.
+
+    Used for smoothed deletion attribution: a deletion inside a homopolymer run
+    is positionally ambiguous, so its count spreads uniformly over the run.
+    """
+    base = ref_seq[pos0]
+    start = pos0
+    while start > 0 and ref_seq[start - 1] == base:
+        start -= 1
+    end = pos0 + 1
+    n = len(ref_seq)
+    while end < n and ref_seq[end] == base:
+        end += 1
+    return start, end
+
+
 def count_cs_error_events(cs_tag: str) -> int:
     """Count error events (*, +, -) in a cs tag string."""
     clean = cs_tag.removeprefix("cs:Z:")

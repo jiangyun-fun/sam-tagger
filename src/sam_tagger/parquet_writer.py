@@ -65,12 +65,16 @@ class TypedStats:
 
 @dataclass
 class PositionalErrorStats:
-    """9-column statistics.
+    """10-column statistics.
 
-    Columns: (seq_name, position, insertion, deletion, mismatch, to_a, to_c, to_g, to_t).
+    Columns: (seq_name, position, insertion, deletion, smoothed_deletion,
+    mismatch, to_a, to_c, to_g, to_t). ``smoothed_deletion`` is Float64 and
+    nullable — null when no reference sequence was available.
     """
 
-    data: list[tuple[str, int, int, int, int, int, int, int, int]] = field(default_factory=list)
+    data: list[tuple[str, int, int, int, float | None, int, int, int, int, int]] = field(
+        default_factory=list
+    )
 
     def add(
         self,
@@ -78,6 +82,7 @@ class PositionalErrorStats:
         position: int,
         insertion: int,
         deletion: int,
+        smoothed_deletion: float | None,
         mismatch: int,
         to_a: int,
         to_c: int,
@@ -85,27 +90,41 @@ class PositionalErrorStats:
         to_t: int,
     ) -> None:
         self.data.append(
-            (seq_name, position, insertion, deletion, mismatch, to_a, to_c, to_g, to_t)
+            (
+                seq_name,
+                position,
+                insertion,
+                deletion,
+                smoothed_deletion,
+                mismatch,
+                to_a,
+                to_c,
+                to_g,
+                to_t,
+            )
         )
 
     def to_dataframe(self) -> pl.DataFrame:
+        rows = self.data
         return pl.DataFrame(
             {
-                "seq_name": [n for n, _, _, _, _, _, _, _, _ in self.data],
-                "position": [p for _, p, _, _, _, _, _, _, _ in self.data],
-                "insertion": [i for _, _, i, _, _, _, _, _, _ in self.data],
-                "deletion": [d for _, _, _, d, _, _, _, _, _ in self.data],
-                "mismatch": [m for _, _, _, _, m, _, _, _, _ in self.data],
-                "to_a": [a for _, _, _, _, _, a, _, _, _ in self.data],
-                "to_c": [c for _, _, _, _, _, _, c, _, _ in self.data],
-                "to_g": [g for _, _, _, _, _, _, _, g, _ in self.data],
-                "to_t": [t for _, _, _, _, _, _, _, _, t in self.data],
+                "seq_name": [r[0] for r in rows],
+                "position": [r[1] for r in rows],
+                "insertion": [r[2] for r in rows],
+                "deletion": [r[3] for r in rows],
+                "smoothed_deletion": [r[4] for r in rows],
+                "mismatch": [r[5] for r in rows],
+                "to_a": [r[6] for r in rows],
+                "to_c": [r[7] for r in rows],
+                "to_g": [r[8] for r in rows],
+                "to_t": [r[9] for r in rows],
             },
             schema={
                 "seq_name": pl.Utf8,
                 "position": pl.UInt32,
                 "insertion": pl.UInt64,
                 "deletion": pl.UInt64,
+                "smoothed_deletion": pl.Float64,
                 "mismatch": pl.UInt64,
                 "to_a": pl.UInt64,
                 "to_c": pl.UInt64,

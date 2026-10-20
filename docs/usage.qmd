@@ -164,6 +164,20 @@ The `error` file splits each position's `mismatch` count by the read
 (destination) base in `to_a`/`to_c`/`to_g`/`to_t`. A substitution whose read
 base is N counts in `mismatch` only, so the four columns can sum below
 `mismatch`.
+
+The `error` file also carries `smoothed_deletion` (Float64, nullable): a
+deletion inside a reference homopolymer run is positionally ambiguous — the
+aligner's placement within the run is a convention, not evidence — so each
+deleted base spreads `1/run_len` over the maximal same-base reference run
+containing it. Example: reference `TTTAAATTT`, read `TTTAATTT` — one A
+deleted from the `AAA` run — contributes 1/3 to each of positions 4, 5, 6
+instead of 1 at the aligner-chosen position. Mass is conserved:
+`sum(smoothed_deletion) == sum(deletion)` for runs fully inside the error
+inner region; mass landing outside the region is dropped, like plain
+per-position deletions. Non-homopolymer deletions carry their full count at
+their own position. **Requires `--fasta`** (same reference the BAM was
+aligned to, `samtools faidx`-indexed); without it the column is **null**.
+With `--fasta`, eventless positions read `0.0` like the integer columns.
 | `{p}.mismatch.parquet`            | `--mismatch-out`      | Mismatch matrix           |
 | `{p}.insertion.parquet`           | `--insertion-out`     | Insertion summary         |
 | `{p}.deletion.parquet`            | `--deletion-out`      | Deletion summary          |
