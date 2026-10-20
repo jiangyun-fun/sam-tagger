@@ -1,0 +1,469 @@
+---
+title: "Add depth total and rate columns to error.parquet — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📉</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### per-position depth and error rates in error.parquet
+
+```
+level: high
+```
+
+#### reason
+
+A cross-validation test runs real `samtools depth -J -a -a` on a fixture BAM and asserts the `total` column equals its output; 150 tests, ruff, and pyright pass.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `error.parquet` grows 10 → 19 columns: `total` (per-position depth) plus `insertion_rate`, `deletion_rate`, `smoothed_deletion_rate`, `mismatch_rate`, `to_a_rate`, `to_c_rate`, `to_g_rate`, `to_t_rate`, each `count / total`.
+2. `total` follows `samtools depth -J -a -a` semantics verified from primary source (`bam2depth.c:744,775,853,396`): deletions count as covered, insertions do not; over sam-tagger's read universe (all mapped cs-carrying reads), not region-gated.
+3. Rates are `0.0` on zero depth (the `fl_pct` precedent); `smoothed_deletion_rate` is null without `--fasta`.
+4. Always on — no new CLI flag; computed from the cs walk the tally already does.
+
+#### before
+
+error.parquet carried counts only; per-position rates required joining an external samtools depth output, whose default read filter (secondary/dup/qcfail excluded) mismatches the numerators' universe.
+
+#### after
+
+Counts and a self-consistent denominator live in one file; `-J` semantics keep every rate ≤ 1 (the read deleting at p is itself in the denominator at p).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py:56-58` — `depth_diff` on `_PerRefErrorStats`.
+- `src/sam_tagger/stats/error_stats.py` — `_bump_depth` calls in the `:`/`*`/`-` branches (the `-J` line commented).
+- `src/sam_tagger/stats/error_stats.py` — `_bump_depth`/`_depth_array` (difference array, prefix sum).
+- `src/sam_tagger/stats/error_stats.py` — `_write_error_stats` computes rates and emits 19 columns.
+- `src/sam_tagger/parquet_writer.py` — 19-column `PositionalErrorStats`.
+- `tests/test_stats.py` — 5 depth/rate tests; `tests/test_integration.py:506-545` — the samtools parity test.
+- Semantics source: `/bioproj/tools/github/samtools/bam2depth.c` (cloned this session, line-cited in the assessment).
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### parity with samtools is conditional; intron cs ops unparsed
+
+```
+level: medium
+```
+
+#### reason
+
+Both facts are structural: `bam2depth.c:744` excludes secondary/dup/qcfail by default while our universe keeps them (for numerator/denominator consistency), and `CS_REGEX` has no `~` alternative — both documented in the user docs.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `total == samtools depth -J -a -a` exactly when the BAM has no secondary (0x100) / QC-fail (0x200) / dup (0x400) records and every mapped read carries `cs`; otherwise the columns differ by design (rate denominators must match numerators).
+2. Spliced reads (`~` intron ops) mis-walk positions after the intron — pre-existing limitation, unchanged by this feature; amplicon data is unaffected.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `/bioproj/tools/github/samtools/bam2depth.c:744` — the default flag filter.
+- `src/sam_tagger/processing.py:28` — `CS_REGEX` without `~`.
+- `docs/usage.qmd` — the parity conditions paragraph.
+
+:::
+
+## caveat
+
+### rates use sam-tagger's universe, not samtools' default filter
+
+```
+level: medium
+```
+
+#### reason
+
+The choice is deliberate and documented; the parity test demonstrates the equivalence domain on a clean fixture.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Do not join our `total` onto files expecting samtools' default-filtered depth when secondary/dup/qcfail records exist.
+2. To reproduce our numbers with samtools: `samtools depth -J -a -a --excl-flags 0x4`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_integration.py` — `test_error_stats_total_matches_samtools_depth` (fixture without secondary/dup/qcfail; exact equality asserted).
+
+:::
+
+## assumption
+
+### rate-at-zero-depth convention and column set fit downstream consumers
+
+```
+level: medium
+```
+
+#### reason
+
+The user chose the total + all-8-rates option; the `0.0`-on-zero-depth convention follows the `fl_pct` house precedent. I have not seen the consuming model.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a consumer prefers null over 0.0 at zero depth, the convention is a single expression per rate in `_write_error_stats`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### the missing denominator is delivered, tested against real samtools
+
+```
+level: high
+```
+
+#### reason
+
+The parity claim is executable, not aspirational: the test suite invokes samtools and asserts equality.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 150 tests pass (144 before; 6 new/extended), ruff and pyright clean.
+2. Cost matches the assessment: 2 dict updates per covering cs op, prefix sum and 8 divisions per position at write — same class as the existing tally; no new inputs for `total` (the rates' only dependency, `--fasta`, was already shipped for smoothing).
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+pixi run -e dev test      → 150 passed
+pixi run -e dev lint      → All checks passed!
+pixi run -e dev typecheck → 0 errors, 0 warnings, 0 informations
+parity: total == samtools depth -J -a -a (fixture without 0x100/0x200/0x400)
+```
+
+:::
+
+## recommendation
+
+### M: notify downstream consumers of the additive schema changes in one notice
+
+```
+level: medium
+```
+
+#### reason
+
+Carried and widened again: error.parquet went 9 → 10 → 19 columns within two unreleased changes.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Bundle the notice for all unreleased output changes (error.parquet 19 columns; qc-summary 18 + length-dist file).
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### L: prefer read-time column projection over a writer-side column-selection flag
+
+```
+level: low
+```
+
+#### reason
+
+Carried; unchanged.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Project columns in the consuming pipeline step.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: decide the release carrying the four unreleased output changes
+
+```
+level: medium
+```
+
+#### reason
+
+Four features are committed but unreleased (strand columns, length-dist output, smoothed_deletion, total + rates); releases are maintainer decisions.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Choose the bump size and fold all four output changes into the release notes.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### suite size after the change
+
+```
+level: high
+```
+
+#### reason
+
+The number comes from the final collect/test run this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 150 tests collected and passing (144 before; 6 new/extended).
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+150 tests collected
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### samtools semantics taken from primary source, then made executable
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The user redirected verification from web docs to a source clone; I cloned samtools and cited `bam2depth.c` lines for -J, -a -a, and the default filter before writing code.
+2. The dev env then gained samtools (`pixi add -e dev samtools`, committed separately as `3f767ca`) so the parity claim became a test rather than documentation.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+3f767ca chore(dev): add samtools to dev env for depth parity test
+c371d52 feat: add depth total and rate columns to error.parquet
+```
+
+:::
+
+### two test-side defects caught before shipping
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. My clean-read/insertion fixture expected depth 2 across positions 16-20 that the 15 bp insertion read does not cover — the test math was wrong, not the implementation.
+2. A dead collector line survived an edit and ruff flagged it (F841); removed.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+test_depth_total_clean_read_and_insertion: all(...) == False → fixture fixed to 2@1..15, 1@16..20
+F841 col assigned but never used → removed
+```
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                               |
+|---------|--------------------------------------------------------------------|
+| updated | `src/sam_tagger/stats/error_stats.py`                              |
+| updated | `src/sam_tagger/parquet_writer.py`                                 |
+| updated | `tests/test_stats.py`                                              |
+| updated | `tests/test_parquet_writer.py`                                     |
+| updated | `tests/test_integration.py`                                        |
+| updated | `docs/usage.qmd`                                                   |
+| updated | `pixi.toml`, `pixi.lock`                                           |
+| created | `docs/plans/20261020-223656_add-error-out-depth-rates.plan.qmd`   |
+| created | `docs/plans/20261020-224231_add-error-out-depth-rates.report.qmd` |
+| updated | `docs/misc/requirements_audit.qmd`                                 |
+| updated | `docs/misc/next_and_recommendation.qmd`                            |
+
+1. Git: `3f767ca` `chore(dev): add samtools to dev env for depth parity test`; `c371d52` `feat: add depth total and rate columns to error.parquet`.
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261020-223656 plan](20261020-223656_add-error-out-depth-rates.plan.qmd) and this report.
+3. Packages: `samtools >=1.24,<2 → pixi:dev`. Environments: none new (dev env extended).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+[main 3f767ca] chore(dev): add samtools to dev env for depth parity test
+[main c371d52] feat: add depth total and rate columns to error.parquet
+ 6 files changed, 245 insertions(+), 27 deletions(-)
+```
+
+:::
+
+## other
+
+None

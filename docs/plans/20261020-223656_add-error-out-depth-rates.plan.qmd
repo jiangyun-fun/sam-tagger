@@ -1,0 +1,90 @@
+---
+title: "Plan: add depth total and rate columns to error.parquet"
+author: "Yun Jiang"
+date: 2026-10-20
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📉</text></svg>">
+---
+
+# Objective
+
+Add a per-position depth column `total` to `{p}.error.parquet` with
+`samtools depth -J -a -a` semantics, plus eight per-position rate columns —
+turning the error counts into rates with a self-consistent denominator.
+
+# Scope
+
+Decisions confirmed with the user on 2026-10-20 (option: total + all 8 rates):
+
+1. `total` counts, per cs-walk, every mapped cs-carrying read that reaches
+   the tally: `:` and `*` ops cover their span; `-` covers its span (the
+   `-J` semantics); `+` covers nothing. NOT region-gated (coverage is not a
+   region concept; rows already span 1..seq_len).
+2. Read universe = sam-tagger's own (all mapped cs reads), NOT samtools'
+   default filter (`bam2depth.c:744` excludes secondary/dup/qcfail). This
+   keeps rate denominators consistent with the numerators; parity with
+   `samtools depth -J -a -a` is exact for BAMs without those records —
+   verified by a cross-validation test against real samtools.
+3. Rates: `insertion_rate`, `deletion_rate`, `smoothed_deletion_rate`,
+   `mismatch_rate`, `to_a_rate`, `to_c_rate`, `to_g_rate`, `to_t_rate` =
+   count/total per position; `0.0` when total is 0 (the `fl_pct` precedent);
+   `smoothed_deletion_rate` is null when smoothing is off (no fasta).
+   With `-J`, a read's deletion at p is itself in the denominator at p, so
+   every rate stays <= 1.
+4. Always on — no new CLI flag; the schema stays fixed (10 -> 19 columns).
+5. Algorithm: difference array (2 dict updates per covering cs op), prefix
+   sum at write inside the existing 1..seq_len loop — O(ops) per read, no
+   per-base Python loops, no new inputs.
+
+# Planned steps (as-built: executed as planned, 2026-10-20)
+
+1. `pixi add -e dev samtools` — committed separately (`3f767ca`) before the
+   feature; parity test depends on it.
+2. Tests first (RED): confirmed failing on missing columns before
+   implementation. Two test-side defects fixed during the cycle: the
+   insertion-read fixture expected depth 2 beyond its 15 bp span, and a
+   dead collector line (ruff F841).
+3. `error_stats.py`: `depth_diff` per ref; `_bump_depth` in the `:`/`*`/`-`
+   branches; `_depth_array` prefix sum; rates computed inline in
+   `_write_error_stats` (0.0 on zero depth; smoothed rate null-aware).
+4. `parquet_writer.py`: 19-column `PositionalErrorStats`, index-access.
+5. `docs/usage.qmd`: columns, -J semantics, parity conditions, the
+   `--excl-flags 0x4` reproduction command.
+6. Verify: 150 tests, ruff, pyright green; the samtools parity test asserts
+   exact equality on a clean fixture. Commits `3f767ca` + `c371d52`;
+   report at
+   [20261020-224231](20261020-224231_add-error-out-depth-rates.report.qmd).
+
+# Files to touch
+
+- `src/sam_tagger/stats/error_stats.py` — depth accumulation + rates.
+- `src/sam_tagger/parquet_writer.py` — 19-column writer.
+- `tests/test_stats.py`, `tests/test_parquet_writer.py`,
+  `tests/test_integration.py` — tests.
+- `docs/usage.qmd` — docs.
+- `pixi.toml`, `pixi.lock` — dev-env samtools.
+
+# Risks
+
+- Schema grows 10 -> 19; additive-schema notice extends.
+- Pre-existing `~` (intron) cs ops are unparsed — depth after an intron
+  would be wrong for spliced reads; amplicon N/A, unchanged behavior.
+- The writer `add()` signature reaches 19 positional parameters —
+  mechanical, index-accessed.
+
+# Verification criteria
+
+1. New tests pass; full suite, ruff, pyright green.
+2. Parity test: `total` equals `samtools depth -J -a -a` output on a
+   fixture without secondary/qcfail/dup records.
+3. All rates <= 1 on fixtures with errors; zero-total positions give 0.0;
+   smoothed rate null without fasta.

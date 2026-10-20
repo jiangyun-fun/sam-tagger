@@ -380,3 +380,72 @@ Git:
 - `4c6bb39` feat: add smoothed_deletion column to error.parquet
 
 Packages/Environments: None
+
+## assess depth total and rate columns in error.parquet
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user proposed adding a `total` column to error.parquet matching
+`samtools depth -J -a -a`, plus per-position rate columns
+(insertion/deletion/mismatch/to_a/to_c/to_g/to_t/smoothed_deletion), and
+asked whether it is cheap. The user directed verification via a samtools
+source clone rather than web docs.
+
+### result
+
+1. Answered: samtools semantics verified from primary source (cloned samtools; bam2depth.c line-cited) — -J counts deletions (not ref-skips), -a -a zero-fills all contigs, default filter excludes unmapped/secondary/dup/qcfail.
+2. Answered: cheap — the depth difference-array over cs ops is O(ops) per read (2 dict updates per op), no fasta needed; rates are 8 divisions per position at write.
+3. Answered: flagged that -J is exactly what keeps deletion_rate <= 1, and that exact samtools parity requires no secondary/qcfail/dup records (our universe keeps numerator/denominator consistent).
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Git (outside this repo):
+- cloned samtools (shallow) to /bioproj/tools/github/samtools for source verification
+
+Packages/Environments: None
+
+## implement depth total and rate columns in error.parquet
+
+```
+level: high
+date: 2026-10-20
+```
+
+### description
+
+Continuation after the user approved the total + all-8-rates option for
+error.parquet, with samtools semantics grounded in the cloned source at
+the user's direction.
+
+### result
+
+1. Implemented total (samtools depth -J -a -a semantics over sam-tagger's read universe, not region-gated) plus 8 count/total rate columns; error.parquet 10 -> 19 columns, always on.
+2. Verified: 150 tests, ruff, pyright green; a parity test runs real samtools depth and asserts exact equality on a fixture without secondary/qcfail/dup records.
+3. Difference-array accumulation keeps the per-read cost at O(cs ops); no new inputs for total.
+
+### change
+
+Files:
+- updated: `src/sam_tagger/stats/error_stats.py`, `src/sam_tagger/parquet_writer.py`,
+  `tests/test_stats.py`, `tests/test_parquet_writer.py`, `tests/test_integration.py`,
+  `docs/usage.qmd`, `pixi.toml`, `pixi.lock`
+- created: `docs/plans/20261020-223656_add-error-out-depth-rates.plan.qmd`,
+  `docs/plans/20261020-224231_add-error-out-depth-rates.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `3f767ca` chore(dev): add samtools to dev env for depth parity test
+- `c371d52` feat: add depth total and rate columns to error.parquet
+
+Packages:
+- samtools >=1.24,<2 -> pixi:dev
+
+Packages/Environments: dev env extended (no new env)
