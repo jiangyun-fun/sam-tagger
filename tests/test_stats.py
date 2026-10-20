@@ -221,7 +221,9 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
     df = pl.read_parquet(paths.error)
     assert df.columns == [
         "seq_name", "position", "insertion", "deletion", "smoothed_deletion", "mismatch",
-        "to_a", "to_c", "to_g", "to_t",
+        "to_a", "to_c", "to_g", "to_t", "total",
+        "insertion_rate", "deletion_rate", "smoothed_deletion_rate", "mismatch_rate",
+        "to_a_rate", "to_c_rate", "to_g_rate", "to_t_rate",
     ]
     # no get_ref_seq -> the whole smoothed column is null
     assert df["smoothed_deletion"].null_count() == df.height
@@ -397,3 +399,86 @@ def test_smoothed_deletion_null_without_ref_seq(tmp_path: Path) -> None:
     assert "smoothed_deletion" in df.columns
     assert df["smoothed_deletion"].null_count() == df.height
     assert df["deletion"].sum() == 1
+
+
+# --------------------------------------------------------------------------
+# depth total + rate columns
+# --------------------------------------------------------------------------
+
+
+def _read_error_parquet(paths) -> pl.DataFrame:
+    return pl.read_parquet(paths.error)
+
+
+def test_depth_total_j_semantics(tmp_path: Path) -> None:
+    # Both hp reads span the whole reference; deletions count as covered (-J).
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(_hp_params(), paths)
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    col.write_results()
+    df = _read_error_parquet(paths)
+    assert df["total"].to_list() == [2] * 9
+    # deletion rate: 1 deletion at pos 4 and 5, over total 2
+    rates = dict(zip(df["position"].to_list(), df["deletion_rate"].to_list(), strict=True))
+    assert rates[4] == pytest.approx(0.5)
+    assert rates[5] == pytest.approx(0.5)
+    assert rates[6] == pytest.approx(0.0)
+
+
+def test_depth_total_clean_read_and_insertion(tmp_path: Path) -> None:
+    params = {"ref1": ErrorParams(seq_len=20, inner_region_start=0, inner_region_end=20)}
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(params, paths)
+    col.tally_from_parsed(parse_cs_tag(":20"), 0, "ref1", "clean")
+    col.tally_from_parsed(parse_cs_tag(":10+g:5"), 0, "ref1", "ins")
+    col.write_results()
+    df = _read_error_parquet(paths)
+    total = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))
+    # clean read covers 1..20; the 15bp insertion read covers 1..15 (insertion adds no ref span)
+    assert all(total[p] == 2 for p in range(1, 16))
+    assert all(total[p] == 1 for p in range(16, 21))
+    assert df["insertion"].sum() == 1
+    ins_rate = dict(zip(df["position"].to_list(), df["insertion_rate"].to_list(), strict=True))
+    assert ins_rate[11] == pytest.approx(0.5)  # insertion attributed to pos after op
+
+
+def test_depth_total_not_region_gated(tmp_path: Path) -> None:
+    # Region [3, 9): deletion outside the region is not counted, but coverage is.
+    paths = _err_paths(tmp_path)
+    col2 = ErrorStatsCollector({"hp": ErrorParams(seq_len=9, inner_region_start=3, inner_region_end=9)}, paths)
+    col2.tally_from_parsed(parse_cs_tag(":2-a:6"), 0, "hp", "r1")
+    col2.write_results()
+    df = _read_error_parquet(paths)
+    total = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))
+    assert total[1] == 1 and total[2] == 1  # outside region, still covered
+    assert df["deletion"].sum() == 0  # deletion at 0-based 2 is outside [3,9)
+    assert df["mismatch_rate"].to_list() == [0.0] * 9  # zero-total guard path
+    assert df["total"].to_list() == [1] * 9
+
+
+def test_depth_rates_with_smoothed(tmp_path: Path) -> None:
+    # With fasta: smoothed 2/3 over total 2 -> rate 1/3 at 4,5,6.
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(_hp_params(), paths, get_ref_seq=_hp_get(_HP_REF))
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    col.write_results()
+    df = _read_error_parquet(paths)
+    sr = dict(zip(df["position"].to_list(), df["smoothed_deletion_rate"].to_list(), strict=True))
+    assert sr[4] == pytest.approx(1 / 3)
+    assert sr[5] == pytest.approx(1 / 3)
+    assert sr[6] == pytest.approx(1 / 3)
+    assert sr[1] == 0.0
+
+
+def test_depth_rate_null_propagation_without_fasta(tmp_path: Path) -> None:
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(_hp_params(), paths)
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
+    col.write_results()
+    df = _read_error_parquet(paths)
+    assert df["smoothed_deletion"].null_count() == df.height
+    assert df["smoothed_deletion_rate"].null_count() == df.height
+    # other rates are real numbers
+    assert df["deletion_rate"].null_count() == 0

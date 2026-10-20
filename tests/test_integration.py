@@ -503,3 +503,53 @@ def test_error_stats_smoothed_deletion_with_fasta(tmp_path: Path) -> None:
     assert smoothed[5] == pytest.approx(2 / 3)
     assert smoothed[6] == pytest.approx(2 / 3)
     assert df["smoothed_deletion"].null_count() == 0
+
+
+def test_error_stats_total_matches_samtools_depth(tmp_path: Path) -> None:
+    """`total` must equal `samtools depth -J -a -a` on a clean fixture.
+
+    Parity conditions: no secondary (0x100) / QC-fail (0x200) / dup (0x400)
+    records, and every mapped read carries a cs tag — both true for this
+    fixture. bam2depth.c:744 excludes those flags by default; sam-tagger's
+    tally universe is all mapped cs reads.
+    """
+    import shutil
+    import subprocess
+
+    samtools = shutil.which("samtools")
+    assert samtools is not None, "samtools missing from the dev pixi environment"
+
+    hdr = "@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:hp\tLN:9"
+    seq, qual = "TTTAATTT", "I" * 8
+    sam = (
+        f"p4\t0\thp\t1\t60\t3M1D5M\t*\t0\t0\t{seq}\t{qual}\tcs:Z::3-a:5\n"
+        f"p5\t0\thp\t1\t60\t4M1D4M\t*\t0\t0\t{seq}\t{qual}\tcs:Z::4-a:4\n"
+        f"partial\t0\thp\t2\t60\t4M\t*\t0\t0\tTTAA\t{qual[:4]}\tcs:Z::4\n"
+    )
+    setup = setup_env(
+        tmp_path,
+        {"hp": {"error_primer_start_len": 0, "error_primer_end_len": 0}},
+        hdr,
+        sam,
+    )
+    assert setup.config_path is not None
+    prefix = tmp_path / "e"
+    run_error_stats(
+        ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix)
+    )
+    df = pl.read_parquet(tmp_path / "e.error.parquet")
+    ours = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))
+
+    out = subprocess.run(
+        [samtools, "depth", "-J", "-a", "-a", str(setup.input_bam)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    theirs = {}
+    for line in out.strip().splitlines():
+        ref, pos, depth = line.split("\t")
+        assert ref == "hp"
+        theirs[int(pos)] = int(depth)
+
+    assert ours == theirs

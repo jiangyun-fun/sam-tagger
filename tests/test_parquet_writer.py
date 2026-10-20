@@ -80,34 +80,40 @@ def test_typed_stats_write_and_read_parquet(tmp_path: Path) -> None:
 
 def test_positional_error_stats_to_dataframe() -> None:
     stats = PositionalErrorStats()
-    stats.add("ref1", 1, 5, 3, 2 / 3, 2, 0, 2, 0, 0)
-    stats.add("ref1", 2, 0, 1, None, 0, 0, 0, 0, 0)
-    stats.add("ref2", 1, 10, 5, 1.0, 3, 1, 1, 1, 0)
+    stats.add("ref1", 1, 5, 3, 2 / 3, 2, 0, 2, 0, 0, 6, 5 / 6, 0.5, 1 / 9, 1 / 3, 0, 1 / 3, 0, 0)
+    stats.add("ref1", 2, 0, 1, None, 0, 0, 0, 0, 0, 2, 0.0, 0.5, None, 0.0, 0, 0, 0, 0)
+    stats.add("ref2", 1, 10, 5, 1.0, 3, 1, 1, 1, 0, 12, 10 / 12, 5 / 12, 1 / 12, 0.25, 1 / 12, 1 / 12, 1 / 12, 0)
     df = stats.to_dataframe()
     assert df.height == 3
-    assert df.width == 10
+    assert df.width == 19
     assert df["position"][0] == 1
     assert df["position"][1] == 2
     assert df["to_c"][0] == 2
     assert df["to_g"][2] == 1
     assert df["smoothed_deletion"][0] == pytest.approx(2 / 3)
     assert df["smoothed_deletion"][1] is None
+    assert df["total"][0] == 6
+    assert df["insertion_rate"][0] == pytest.approx(5 / 6)
+    assert df["smoothed_deletion_rate"][1] is None
+    assert df["mismatch_rate"][2] == pytest.approx(0.25)
 
 
 def test_positional_error_stats_write_and_read_parquet(tmp_path: Path) -> None:
     path = tmp_path / "test_positional.parquet"
     stats = PositionalErrorStats()
-    stats.add("ref1", 10, 5, 3, 0.5, 2, 1, 1, 0, 0)
-    stats.add("ref1", 20, 0, 0, None, 1, 0, 0, 0, 1)
+    stats.add("ref1", 10, 5, 3, 0.5, 2, 1, 1, 0, 0, 8, 0.625, 0.375, 0.0625, 0.25, 0.125, 0.125, 0, 0)
+    stats.add("ref1", 20, 0, 0, None, 1, 0, 0, 0, 1, 3, 0.0, 0.0, None, 1 / 3, 0, 0, 0, 1 / 3)
     stats.write_parquet(path)
     assert path.exists()
     df = pl.scan_parquet(path).collect()
     assert df.height == 2
-    assert df.width == 10
+    assert df.width == 19
     assert df["position"][0] == 10
     assert df["insertion"][0] == 5
     assert df["smoothed_deletion"][0] == pytest.approx(0.5)
     assert df["smoothed_deletion"][1] is None
+    assert df["total"][1] == 3
+    assert df["mismatch_rate"][1] == pytest.approx(1 / 3)
 
 
 def test_single_deletion_stats_to_dataframe() -> None:

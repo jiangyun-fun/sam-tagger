@@ -178,6 +178,20 @@ per-position deletions. Non-homopolymer deletions carry their full count at
 their own position. **Requires `--fasta`** (same reference the BAM was
 aligned to, `samtools faidx`-indexed); without it the column is **null**.
 With `--fasta`, eventless positions read `0.0` like the integer columns.
+
+The `error` file also carries `total` (per-position depth) and eight
+`*_rate` columns (`insertion_rate`, `deletion_rate`,
+`smoothed_deletion_rate`, `mismatch_rate`, `to_a_rate`, `to_c_rate`,
+`to_g_rate`, `to_t_rate`), each `count / total` (`0.0` on zero depth;
+`smoothed_deletion_rate` is null without `--fasta`). `total` follows
+`samtools depth -J -a -a` semantics — `:`/`*`/`-` bases cover, insertions
+do not, deletions count (so every rate stays ≤ 1) — over sam-tagger's own
+read universe (all mapped cs-carrying reads; not region-gated). It equals
+the samtools output exactly when the BAM has no secondary (0x100),
+QC-fail (0x200), or duplicate (0x400) records and every mapped read
+carries `cs` (samtools excludes those flags by default; samtools ref-skips
+`N` are never counted). A cross-validation test runs real `samtools depth`
+against this column.
 | `{p}.mismatch.parquet`            | `--mismatch-out`      | Mismatch matrix           |
 | `{p}.insertion.parquet`           | `--insertion-out`     | Insertion summary         |
 | `{p}.deletion.parquet`            | `--deletion-out`      | Deletion summary          |

@@ -65,16 +65,17 @@ class TypedStats:
 
 @dataclass
 class PositionalErrorStats:
-    """10-column statistics.
+    """19-column statistics.
 
-    Columns: (seq_name, position, insertion, deletion, smoothed_deletion,
-    mismatch, to_a, to_c, to_g, to_t). ``smoothed_deletion`` is Float64 and
-    nullable — null when no reference sequence was available.
+    Counts: (seq_name, position, insertion, deletion, smoothed_deletion,
+    mismatch, to_a, to_c, to_g, to_t, total). Rates: (insertion_rate,
+    deletion_rate, smoothed_deletion_rate, mismatch_rate, to_a_rate,
+    to_c_rate, to_g_rate, to_t_rate) — count/total, 0.0 on zero depth.
+    ``smoothed_deletion``/``smoothed_deletion_rate`` are Float64 and nullable
+    — null when no reference sequence was available.
     """
 
-    data: list[tuple[str, int, int, int, float | None, int, int, int, int, int]] = field(
-        default_factory=list
-    )
+    data: list[tuple] = field(default_factory=list)
 
     def add(
         self,
@@ -88,19 +89,22 @@ class PositionalErrorStats:
         to_c: int,
         to_g: int,
         to_t: int,
+        total: int,
+        insertion_rate: float,
+        deletion_rate: float,
+        smoothed_deletion_rate: float | None,
+        mismatch_rate: float,
+        to_a_rate: float,
+        to_c_rate: float,
+        to_g_rate: float,
+        to_t_rate: float,
     ) -> None:
         self.data.append(
             (
-                seq_name,
-                position,
-                insertion,
-                deletion,
-                smoothed_deletion,
-                mismatch,
-                to_a,
-                to_c,
-                to_g,
-                to_t,
+                seq_name, position, insertion, deletion, smoothed_deletion, mismatch,
+                to_a, to_c, to_g, to_t, total, insertion_rate, deletion_rate,
+                smoothed_deletion_rate, mismatch_rate, to_a_rate, to_c_rate,
+                to_g_rate, to_t_rate,
             )
         )
 
@@ -118,6 +122,15 @@ class PositionalErrorStats:
                 "to_c": [r[7] for r in rows],
                 "to_g": [r[8] for r in rows],
                 "to_t": [r[9] for r in rows],
+                "total": [r[10] for r in rows],
+                "insertion_rate": [r[11] for r in rows],
+                "deletion_rate": [r[12] for r in rows],
+                "smoothed_deletion_rate": [r[13] for r in rows],
+                "mismatch_rate": [r[14] for r in rows],
+                "to_a_rate": [r[15] for r in rows],
+                "to_c_rate": [r[16] for r in rows],
+                "to_g_rate": [r[17] for r in rows],
+                "to_t_rate": [r[18] for r in rows],
             },
             schema={
                 "seq_name": pl.Utf8,
@@ -130,6 +143,15 @@ class PositionalErrorStats:
                 "to_c": pl.UInt64,
                 "to_g": pl.UInt64,
                 "to_t": pl.UInt64,
+                "total": pl.UInt64,
+                "insertion_rate": pl.Float64,
+                "deletion_rate": pl.Float64,
+                "smoothed_deletion_rate": pl.Float64,
+                "mismatch_rate": pl.Float64,
+                "to_a_rate": pl.Float64,
+                "to_c_rate": pl.Float64,
+                "to_g_rate": pl.Float64,
+                "to_t_rate": pl.Float64,
             },
         )
 

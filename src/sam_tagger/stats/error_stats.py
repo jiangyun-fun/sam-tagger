@@ -56,6 +56,9 @@ class _PerBaseCounts:
 @dataclass(slots=True)
 class _PerRefErrorStats:
     positional_errors: dict[int, _PositionalErrorCounts] = field(default_factory=dict)
+    # Difference array for per-position depth (samtools depth -J semantics):
+    # `:`/`*`/`-` cover their span; `+` covers nothing. Not region-gated.
+    depth_diff: dict[int, int] = field(default_factory=dict)
     # 5x5 ACGTN x ACGTN; the N-row (index 4) is tallied but excluded from output
     mismatch_matrix: list[list[int]] = field(default_factory=lambda: [[0] * 5 for _ in range(5)])
     insertion_summary: list[int] = field(default_factory=lambda: [0] * 5)
@@ -232,6 +235,28 @@ class ErrorStatsCollector:
                 entry = self._get_or_create_pos(ref_stats.positional_errors, q + 1)
                 entry.smoothed_deletion = (entry.smoothed_deletion or 0.0) + share
 
+    @staticmethod
+    def _bump_depth(ref_stats: _PerRefErrorStats, start: int, n: int) -> None:
+        """Mark [start, start+n) as covered by one more read (difference array)."""
+        if n <= 0:
+            return
+        d = ref_stats.depth_diff
+        d[start] = d.get(start, 0) + 1
+        d[start + n] = d.get(start + n, 0) - 1
+
+    @staticmethod
+    def _depth_array(ref_stats: _PerRefErrorStats, seq_len: int) -> list[int]:
+        """Prefix-sum the difference array into per-position depth (0-based index)."""
+        depth = [0] * seq_len
+        keys = sorted(ref_stats.depth_diff)
+        cur = 0
+        for k_idx, k in enumerate(keys):
+            nxt = keys[k_idx + 1] if k_idx + 1 < len(keys) else seq_len
+            cur += ref_stats.depth_diff[k]
+            for i in range(max(k, 0), min(nxt, seq_len)):
+                depth[i] = cur
+        return depth
+
     def _get_or_create_ref_stats(self, ref_name: str) -> _PerRefErrorStats:
         ref_stats = self._stats_by_ref.get(ref_name)
         if ref_stats is None:
@@ -268,9 +293,11 @@ class ErrorStatsCollector:
             )
 
             if op_type == ":":
+                self._bump_depth(ref_stats, op_pos, int(val))
                 current_pos += int(val)
 
             elif op_type == "*":
+                self._bump_depth(ref_stats, op_pos, 1)
                 if is_in_error_region and len(val) >= 2:
                     ref_idx = _base_to_idx(ord(val[0]))
                     read_idx = _base_to_idx(ord(val[1]))
@@ -307,6 +334,7 @@ class ErrorStatsCollector:
             elif op_type == "-":
                 bases = val.encode()
                 length = len(bases)
+                self._bump_depth(ref_stats, op_pos, length)  # -J: deletions count as covered
                 is_single_del = length == 1
                 del_end_pos = op_pos + length
                 overlap_start = max(op_pos, params.inner_region_start)
@@ -375,19 +403,32 @@ class ErrorStatsCollector:
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
             seq_len = self._error_params_map[seq_name].seq_len
+            depth = self._depth_array(ref_stats, seq_len)
             for i in range(1, seq_len + 1):
                 counts = ref_stats.positional_errors.get(i, _PositionalErrorCounts())
+                total = depth[i - 1]
+                sm = smoothed(counts.smoothed_deletion)
+                sm_rate = None if sm is None else (sm / total if total else 0.0)
                 pos_stats.add(
                     seq_name,
                     i,
                     counts.insertions,
                     counts.deletions,
-                    smoothed(counts.smoothed_deletion),
+                    sm,
                     counts.mismatches,
                     counts.to_a,
                     counts.to_c,
                     counts.to_g,
                     counts.to_t,
+                    total,
+                    (counts.insertions / total) if total else 0.0,
+                    (counts.deletions / total) if total else 0.0,
+                    sm_rate,
+                    (counts.mismatches / total) if total else 0.0,
+                    (counts.to_a / total) if total else 0.0,
+                    (counts.to_c / total) if total else 0.0,
+                    (counts.to_g / total) if total else 0.0,
+                    (counts.to_t / total) if total else 0.0,
                 )
         pos_stats.write_parquet(paths.error)
 
