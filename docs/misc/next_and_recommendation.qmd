@@ -5,10 +5,10 @@ author: "Yun Jiang"
 
 ## next
 
-1. M: decide the release (version bump + notes) that carries the qc-summary strand columns and the length-dist side output — maintainer decision
+1. M: decide the release (version bump + notes) carrying the three unreleased output changes (qc-summary strand columns, length-dist output, smoothed_deletion) — maintainer decision
 
 ## recommendation
 
-1. M: notify downstream consumers of the additive qc-summary changes (18-column digest + optional length-dist file) before they upgrade; the same notice applies to the v0.3.0 error.parquet to_* columns
+1. M: notify downstream consumers of the additive schema changes in one notice — error.parquet now 10 columns (first Float64/nullable), qc-summary 18 columns plus the optional length-dist file
 2. L: prefer read-time column projection (polars/duckdb `columns=`/SELECT) over a writer-side column-selection flag — parquet readers prune column chunks natively
 3. L: whole-file strand counts need no sam-tagger run — `samtools view -c -f 16` / `-F 16` covers them

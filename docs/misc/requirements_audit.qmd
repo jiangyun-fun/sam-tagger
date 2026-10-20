@@ -318,3 +318,65 @@ Git:
 - `91fbc63` feat: add read-length and dm distribution side output to qc-summary
 
 Packages/Environments: None
+
+## assess smoothed deletion attribution in error.parquet
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user proposed a smoothed_deletion column in error.parquet: a deletion
+inside a reference homopolymer run is positionally ambiguous, so spread the
+count uniformly over the run (ref TTTAAATTT, read TTTAATTT -> 1/3 A at each
+of positions 4,5,6). Asked whether it is cheap and whether I agree.
+
+### result
+
+1. Answered: agreed on the metric — a live demo shows the SAME biological deletion placed at position 4 by one alignment and position 5 by another, so current per-position counts carry a pure alignment-convention artifact.
+2. Answered: cheap in compute (O(run length) per deleted base, deletion events rare) but not free in interface — run detection requires the reference sequence because cs ":" ops encode lengths only; error-stats would gain --fasta.
+3. Answered: pinned semantics — per-base run detection over the maximal same-base reference run; region-clipped mass; mass conservation sum(smoothed)==sum(deletion); first Float64 column in error.parquet.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## implement smoothed deletion attribution in error.parquet
+
+```
+level: high
+date: 2026-10-20
+```
+
+### description
+
+Continuation after the user accepted the assessment (metric agreed, JSON
+n/a here; null-fallback chosen) for homopolymer-smoothed deletion
+attribution in error.parquet.
+
+### result
+
+1. Implemented smoothed_deletion (Float64, nullable): each deleted base spreads 1/run_len over its maximal reference homopolymer run; --fasta enables it, null without.
+2. Verified: 144 tests, ruff, pyright green; end-to-end on the user's example gives deletion{4:1, 5:1} vs smoothed{4:2/3, 5:2/3, 6:2/3}.
+3. Pinned and documented semantics: case-normalized cs-vs-fasta comparison, region-clipped mass, 0.0-at-eventless-positions when fasta present, one-time fasta-mismatch warning.
+
+### change
+
+Files:
+- updated: `src/sam_tagger/processing.py`, `src/sam_tagger/stats/error_stats.py`,
+  `src/sam_tagger/parquet_writer.py`, `src/sam_tagger/cli.py`, `src/sam_tagger/lib.py`,
+  `tests/test_processing.py`, `tests/test_stats.py`, `tests/test_parquet_writer.py`,
+  `tests/test_integration.py`, `docs/usage.qmd`
+- created: `docs/plans/20261020-221452_add-smoothed-deletion.plan.qmd`,
+  `docs/plans/20261020-222450_add-smoothed-deletion.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `4c6bb39` feat: add smoothed_deletion column to error.parquet
+
+Packages/Environments: None

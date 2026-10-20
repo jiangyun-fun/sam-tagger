@@ -1,0 +1,472 @@
+---
+title: "Add smoothed_deletion to error.parquet — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>➗</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### homopolymer-smoothed deletion attribution
+
+```
+level: high
+```
+
+#### reason
+
+The user's exact example ran end to end: two alignments of the same biological deletion produce `deletion=1` at positions 4 and 5 (the placement artifact) and `smoothed_deletion=2/3` at each of 4, 5, 6. 144 tests, ruff, and pyright pass.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `error.parquet` gains a 10th column `smoothed_deletion` (Float64, nullable): each deleted base spreads `1/run_len` over the maximal same-base reference run containing it.
+2. `--fasta` (optional, faidx-indexed, same reference as the alignment) enables it; without it the column is null — "unknown", never confusable with "no homopolymer deletions".
+3. Non-homopolymer deletions carry their full count at their own position; multi-base deletions smooth per base.
+
+#### before
+
+A deletion inside a homopolymer was attributed to the aligner-chosen position. Two alignments of the same read could split one event across two positions — demonstrated this session with `:3-a:5` vs `:4-a:4` over `TTTAAATTT`.
+
+#### after
+
+Per-position deletion profiles no longer carry the alignment-convention artifact; the plain `deletion` column remains for exact-event counting.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/processing.py:105-118` — `homopolymer_run_span`.
+- `src/sam_tagger/stats/error_stats.py:186-231` — `_smooth_deletion` (case-normalized cs-vs-fasta comparison, region clipping, one-time fasta-mismatch warning).
+- `src/sam_tagger/stats/error_stats.py:333-344` — null-vs-0.0 normalization at write time.
+- `src/sam_tagger/parquet_writer.py:150-225` — 10-column `PositionalErrorStats`, `smoothed_deletion` Float64.
+- `src/sam_tagger/cli.py:176-183` — `--fasta` on `ErrorStatsArgs`; `src/sam_tagger/lib.py:407-414` — faidx wiring.
+- Tests: `tests/test_processing.py` (run spans), `tests/test_stats.py:324-407` (5 smoothing tests), `tests/test_parquet_writer.py` (10-column), `tests/test_integration.py:484-503` (end-to-end with fasta).
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### smoothing needs --fasta; genome-scale references fetch whole contigs
+
+```
+level: medium
+```
+
+#### reason
+
+The cs tag's `:` ops carry lengths only, so runs are unknowable from the BAM (established this session); the whole-contig fetch is a code fact (`lib.py` `fetch(name)`).
+
+#### description
+
+```
+type: [text]
+```
+
+1. Without `--fasta` the column is null — the feature is off, not approximated.
+2. `get_ref_seq` fetches the full contig string per reference (cached per ref). Amplicon-scale references are trivial; a genome-scale BAM would materialize whole chromosomes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/lib.py` — `_get_ref_seq` calls `faidx_reader.fetch(name).upper()`.
+- `src/sam_tagger/stats/error_stats.py:225-227` — per-ref sequence cache.
+
+:::
+
+## caveat
+
+### mass identity holds only for runs fully inside the region
+
+```
+level: medium
+```
+
+#### reason
+
+A test pins the clipped case: run crossing the region end drops the outside share, mirroring plain per-position deletion clipping.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `sum(smoothed_deletion) == sum(deletion)` per reference when every homopolymer run lies inside the error inner region.
+2. Runs crossing the boundary lose their outside mass; do not assert the identity unconditionally on real data.
+3. The uniform spread is the maximum-entropy convention, not a measured error model — the true position within a run is unidentifiable from a single read.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_stats.py` — `test_smoothed_deletion_region_clipping`: region `[0,5)` keeps 1/3 at positions 4 and 5, drops position 6's share.
+- `tests/test_stats.py` — `test_smoothed_deletion_user_example`: full-region identity asserted.
+
+:::
+
+## assumption
+
+### the uniform convention fits the downstream analysis
+
+```
+level: medium
+```
+
+#### reason
+
+The user specified the exact scheme (1/3 per position for the 3-run; "similar" for the 2-base case) and approved the null-fallback implementation; I have not seen the consuming model.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a later analysis prefers edge-weighted placement priors, the per-base share in `_smooth_deletion` is the single point to change.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### the metric is delivered with the artifact demonstrated and removed
+
+```
+level: high
+```
+
+#### reason
+
+The before/after comparison is measured on the user's own example, and the verification chain is green.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. Same-event two-alignment demo: `deletion` splits 1+1 across positions 4/5; `smoothed_deletion` = 0.666667 at each of 4, 5, 6.
+2. 144 tests pass (137 before; 7 new/extended), ruff and pyright clean.
+3. Compute cost matches the assessment: one run walk per deleted base; deletion events are a small fraction of cs ops.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+pixi run -e dev test      → 144 passed
+pixi run -e dev lint      → All checks passed!
+pixi run -e dev typecheck → 0 errors, 0 warnings, 0 informations
+end-to-end (hp_demo): deletion {4:1, 5:1}, smoothed {4:2/3, 5:2/3, 6:2/3}
+```
+
+:::
+
+## recommendation
+
+### M: notify downstream consumers of the additive error.parquet schema
+
+```
+level: medium
+```
+
+#### reason
+
+Carried and widened: error.parquet grew twice now (v0.3.0 `to_*`, this column) and qc-summary grew once; strict-schema consumers break on additive changes. I have not audited who those consumers are.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Bundle the notice: error.parquet is 10 columns (first Float64/nullable), qc-summary is 18 columns plus the optional length-dist file.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### L: prefer read-time column projection over a writer-side column-selection flag
+
+```
+level: low
+```
+
+#### reason
+
+Carried from the encoding assessment; unchanged.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Project columns in the consuming pipeline step; parquet readers prune column chunks natively.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: decide the release carrying the three unreleased output changes
+
+```
+level: medium
+```
+
+#### reason
+
+Three features are committed but unreleased (strand columns, length-dist output, smoothed_deletion); releases are maintainer decisions in this repo.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Choose the bump size and fold all three output changes into the release notes when cutting the next release.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### suite size after the change
+
+```
+level: high
+```
+
+#### reason
+
+The number comes verbatim from the final verification run this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 144 tests pass (137 before; 7 new/extended across four files).
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+144 passed
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### three fixable defects found by the tests before shipping
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. Case mismatch: cs bases are lowercase (`-a`), the fasta is uppercased — the first run fell into the fasta-mismatch branch. Fixed by normalizing both sides.
+2. Star-unpacking comprehensions in the 10-column writer were misaligned; replaced with index access, which cannot drift.
+3. My own writer test passed the float last while the signature puts it 5th — the test was wrong, not the writer.
+4. A wrong edit also dropped the `return pl.DataFrame(` line mid-refactor; the next run caught it.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+assert 1.0 == 0.666… (case bug) → fixed
+TypeError: 'float' object cannot be interpreted as an integer (unpacking) → indexed
+TypeError: unexpected value … UInt64 (test arg order) → fixed test
+```
+
+:::
+
+### null-vs-0.0 semantics decided during the run
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The end-to-end test exposed that eventless positions read `null` with fasta present; the write path now normalizes to 0.0 when a reference was given, keeping `null` strictly meaning "smoothing unavailable".
+2. A fasta referencing a missing file fails loudly (observed: `OSError: file … not found`) — no silent null fallback.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py:333-344` — the normalization.
+- Session log: missing `hp.fa` raised OSError before the file was created.
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                              |
+|---------|-------------------------------------------------------------------|
+| updated | `src/sam_tagger/processing.py`                                    |
+| updated | `src/sam_tagger/stats/error_stats.py`                             |
+| updated | `src/sam_tagger/parquet_writer.py`                                |
+| updated | `src/sam_tagger/cli.py`                                           |
+| updated | `src/sam_tagger/lib.py`                                           |
+| updated | `tests/test_processing.py`                                        |
+| updated | `tests/test_stats.py`                                             |
+| updated | `tests/test_parquet_writer.py`                                    |
+| updated | `tests/test_integration.py`                                       |
+| updated | `docs/usage.qmd`                                                  |
+| created | `docs/plans/20261020-221452_add-smoothed-deletion.plan.qmd`      |
+| created | `docs/plans/20261020-222450_add-smoothed-deletion.report.qmd`    |
+| updated | `docs/misc/requirements_audit.qmd`                                |
+| updated | `docs/misc/next_and_recommendation.qmd`                           |
+
+1. Git: `4c6bb39` `feat: add smoothed_deletion column to error.parquet`.
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261020-221452 plan](20261020-221452_add-smoothed-deletion.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+[main 4c6bb39] feat: add smoothed_deletion column to error.parquet
+ 10 files changed, 301 insertions(+), 23 deletions(-)
+```
+
+:::
+
+## other
+
+None

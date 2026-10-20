@@ -1,0 +1,96 @@
+---
+title: "Plan: add smoothed_deletion to error.parquet"
+author: "Yun Jiang"
+date: 2026-10-20
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>➗</text></svg>">
+---
+
+# Objective
+
+Add a `smoothed_deletion` column to `{p}.error.parquet`: deletions inside a
+reference homopolymer run are positionally ambiguous, so each deleted base
+spreads its count uniformly over the maximal same-base reference run
+containing it. Demo that motivated this: the same biological deletion
+(read `TTTAATTT`, ref `TTTAAATTT`) placed at position 4 by one alignment
+and position 5 by another — current counts carry that artifact.
+
+# Scope
+
+Decisions confirmed with the user on 2026-10-20:
+
+1. Column: `smoothed_deletion` (Float64, nullable), 10th column of
+   `error.parquet`. Mass conserving: `sum(smoothed_deletion) ==
+   sum(deletion)` for runs fully inside the error inner region.
+2. Run detection requires the reference — the cs tag's `:` ops carry
+   lengths only, not identities. `error-stats` gains an optional
+   `--fasta`; without it the column is **null** (the chosen fallback:
+   "unknown", never confusable with "no homopolymer deletions").
+3. Per-base smoothing inside a deletion op: each deleted base looks up
+   its own maximal run (mixed ops like `-at` work naturally). Multi-base
+   example: `TTTATTT` over `TTTAAATTT` → 2/3 at each of positions 4,5,6.
+4. Region clipping: smoothed mass lands only on positions inside the
+   inner error region, mirroring how plain per-position deletions clip.
+   Mass falling outside the region is dropped (mass identity then holds
+   only for runs fully inside).
+5. No change to `single_deletion`, `deletion_summary`, per-base totals,
+   qc-summary, or the other 6 error outputs.
+
+# Planned steps (as-built: executed as planned, 2026-10-20; corrections below)
+
+1. Tests first (RED): `homopolymer_run_span` unit tests; 5 collector tests
+   (user example, 2-base example, non-homopolymer, null fallback, region
+   clipping); 10-column writer tests updated; 1 end-to-end integration test
+   with fasta. RED confirmed at import (`cannot import name
+   'homopolymer_run_span'`).
+2. `processing.homopolymer_run_span` as planned.
+3. Collector as planned, plus two corrections found by the tests:
+   cs bases are lowercase vs uppercased fasta (case normalization added),
+   and eventless positions normalize to 0.0 at write time when a reference
+   was given — `null` strictly means "smoothing unavailable".
+4. Writer: 10-column `PositionalErrorStats`; the first star-unpacking draft
+   was misaligned and was replaced with index access.
+5. `--fasta` on `ErrorStatsArgs`; faidx wiring in `run_error_stats`
+   (whole-contig fetch, cached per ref; missing fasta fails loudly).
+6. `docs/usage.qmd`: column, flag, semantics, null fallback, mass identity.
+7. Verify: 144 tests, ruff, pyright green; end-to-end on the user's example
+   gives `deletion{4:1, 5:1}` vs `smoothed{4:2/3, 5:2/3, 6:2/3}`.
+   Commit `4c6bb39`; report at
+   [20261020-222450](20261020-222450_add-smoothed-deletion.report.qmd).
+
+# Files to touch
+
+- `src/sam_tagger/processing.py` — run-span helper.
+- `src/sam_tagger/stats/error_stats.py` — smoothing + ref access.
+- `src/sam_tagger/parquet_writer.py` — 10-column writer.
+- `src/sam_tagger/cli.py` — `--fasta` on error-stats.
+- `src/sam_tagger/lib.py` — fasta wiring.
+- `tests/test_processing.py`, `tests/test_stats.py`,
+  `tests/test_parquet_writer.py` — tests.
+- `docs/usage.qmd` — docs.
+
+# Risks
+
+- First Float64 column in error.parquet: downstream integer assumptions
+  break; additive-schema notice applies.
+- Whole-contig fetch per reference via faidx: bounded by amplicon-scale
+  references; a genome-scale BAM would fetch whole chromosomes (memory
+  note for docs, not a blocker for the amplicon use case).
+- Writer signature change touches existing tests — covered by the
+  blast-radius grep (test_parquet_writer.py, test_stats.py).
+
+# Verification criteria
+
+1. New tests pass; full suite, ruff, pyright green.
+2. `sum(smoothed_deletion) == sum(deletion)` for in-region runs.
+3. No-fasta runs write a null column, all 9 original columns unchanged.
+4. The user's two examples produce exactly 2/3 at positions 4,5,6.
