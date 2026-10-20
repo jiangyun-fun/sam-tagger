@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class _QcCounts:
     total: int = 0
+    forward: int = 0
+    reverse: int = 0
     fl: int = 0
     on_target: int = 0
     ap_both: int = 0
@@ -38,6 +40,9 @@ class _QcCounts:
 _SCHEMA = {
     "seq_name": pl.Utf8,
     "total_reads": pl.UInt64,
+    "forward_reads": pl.UInt64,
+    "reverse_reads": pl.UInt64,
+    "forward_pct": pl.Float64,
     "fl": pl.UInt64,
     "fl_pct": pl.Float64,
     "on_target": pl.UInt64,
@@ -63,6 +68,13 @@ class QcSummaryCollector:
 
     def tally_total(self, ref: str) -> None:
         self._counts[ref].total += 1
+
+    def tally_strand(self, ref: str, is_reverse: bool) -> None:
+        """Bucket a mapped record by FLAG 0x10 (secondary/supplementary included)."""
+        if is_reverse:
+            self._counts[ref].reverse += 1
+        else:
+            self._counts[ref].forward += 1
 
     def tally_fl(self, ref: str) -> None:
         self._counts[ref].fl += 1
@@ -103,6 +115,9 @@ class QcSummaryCollector:
 
             columns["seq_name"].append(seq_name)
             columns["total_reads"].append(total)
+            columns["forward_reads"].append(c.forward)
+            columns["reverse_reads"].append(c.reverse)
+            columns["forward_pct"].append((c.forward / total) if total else 0.0)
             columns["fl"].append(c.fl)
             columns["fl_pct"].append((c.fl / total) if total else 0.0)
             columns["on_target"].append(c.on_target)

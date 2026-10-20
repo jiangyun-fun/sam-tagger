@@ -529,6 +529,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
             ref_name = bam_reader.get_reference_name(record.reference_id)
             cigar = record.cigartuples or []
             qc.tally_total(ref_name)
+            qc.tally_strand(ref_name, record.is_reverse)
             if sum_match_del_skip_cigar(cigar) == ref_lengths[ref_name]:
                 qc.tally_fl(ref_name)
 

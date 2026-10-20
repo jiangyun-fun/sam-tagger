@@ -211,7 +211,53 @@ def test_qc_summary_empty_bam(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. CLI dispatch
+# 6. strand columns — FLAG 0x10 split incl. secondary/supplementary records
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_strand_columns(tmp_path: Path) -> None:
+    # r1 fwd, r2 rev (16), r3 secondary fwd (0x100), r4 supplementary rev (0x800|16)
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r2\t16\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r3\t256\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r4\t2064\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r5\t4\t*\t0\t0\t*\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"  # unmapped: no strand
+    )
+    setup = setup_env(tmp_path, None, HDR_3, sam)
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out))
+
+    qc = _read_qc(out)
+    row = qc["seq1"]
+    assert row["total_reads"] == 4  # unmapped r5 excluded
+    assert row["forward_reads"] == 2  # r1 + secondary r3
+    assert row["reverse_reads"] == 2  # r2 + supplementary r4
+    assert row["forward_pct"] == pytest.approx(0.5)
+    # identity holds row-wise
+    assert row["forward_reads"] + row["reverse_reads"] == row["total_reads"]
+    # zero-read ref: zeros, no division error
+    assert qc["seq2"]["forward_reads"] == qc["seq2"]["reverse_reads"] == 0
+    assert qc["seq2"]["forward_pct"] == 0.0
+
+
+def test_qc_summary_strand_all_reverse(tmp_path: Path) -> None:
+    sam = (
+        f"r1\t16\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r2\t16\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\n"
+    )
+    setup = setup_env(tmp_path, None, HDR_1_28, sam)
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out))
+
+    row = _read_qc(out)["seq1"]
+    assert row["forward_reads"] == 0
+    assert row["reverse_reads"] == 2
+    assert row["forward_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 7. CLI dispatch
 # ---------------------------------------------------------------------------
 
 

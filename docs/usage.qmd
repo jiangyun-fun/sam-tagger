@@ -211,12 +211,18 @@ sam-tagger qc-summary INPUT-BAM OUTPUT [ARGS]
 
 Read-only. One Parquet row per BAM-header reference, joining FL, TC, AP and
 per-base error counts/rate into a single digest. Columns: `seq_name, total_reads,
-fl, fl_pct, on_target, on_target_pct, ap_Both, ap_StartOnly, ap_EndOnly,
-ap_Neither, mismatches, insertions, deletions, aligned_bases, error_rate`.
+forward_reads, reverse_reads, forward_pct, fl, fl_pct, on_target, on_target_pct,
+ap_Both, ap_StartOnly, ap_EndOnly, ap_Neither, mismatches, insertions, deletions,
+aligned_bases, error_rate`.
 Zero-read references appear with zeros.
 
 - **With `--config`** — all columns populate (TC/AP/error need primer params).
-- **Without `--config`** — only `total_reads`, `fl`, `fl_pct` are computed.
+- **Without `--config`** — only `total_reads`, `forward_reads`, `reverse_reads`,
+  `forward_pct`, `fl`, `fl_pct` are computed (strand and FL need no config).
+
+Strand counts read the FLAG `0x10` bit of every **mapped** record, including
+secondary and supplementary alignments, so
+`forward_reads + reverse_reads == total_reads` in every row.
 
 ```bash
 # full summary
