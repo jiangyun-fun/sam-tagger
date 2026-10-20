@@ -148,6 +148,35 @@ class SingleDeletionStats:
 
 
 @dataclass
+class DistributionStats:
+    """4-column distribution: (seq_name, metric, value, count)."""
+
+    data: list[tuple[str, str, int, int]] = field(default_factory=list)
+
+    def add(self, seq_name: str, metric: str, value: int, count: int) -> None:
+        self.data.append((seq_name, metric, value, count))
+
+    def to_dataframe(self) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "seq_name": [n for n, _, _, _ in self.data],
+                "metric": [m for _, m, _, _ in self.data],
+                "value": [v for _, _, v, _ in self.data],
+                "count": [c for _, _, _, c in self.data],
+            },
+            schema={
+                "seq_name": pl.Utf8,
+                "metric": pl.Utf8,
+                "value": pl.UInt32,
+                "count": pl.UInt64,
+            },
+        )
+
+    def write_parquet(self, path: Path) -> None:
+        write_df_to_parquet(self.to_dataframe(), path)
+
+
+@dataclass
 class MismatchMatrixStats:
     """6-column statistics: (seq_name, ref_base, A, T, C, G)."""
 

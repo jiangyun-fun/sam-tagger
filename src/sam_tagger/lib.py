@@ -43,6 +43,7 @@ from sam_tagger.processing import (
     write_fastq_entry,
 )
 from sam_tagger.stats.error_stats import ErrorStatsCollector, ErrorStatsOutputPaths
+from sam_tagger.stats.length_dist import LengthDistCollector
 from sam_tagger.stats.pileup_stats import PileupStatsCollector
 from sam_tagger.stats.qc_summary import QcSummaryCollector
 from sam_tagger.stats.tag_stats import StatsCollector
@@ -517,6 +518,9 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
         cfg = load_config(args.config, ref_lengths)
         error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
         qc = QcSummaryCollector(ref_names)
+        length_dist = (
+            LengthDistCollector(args.length_dist_out) if args.length_dist_out is not None else None
+        )
 
         logger.info("Processing BAM records for QC summary...")
         watch = _CsWatch(needs_cs=(cfg.tc is not None or cfg.error is not None))
@@ -530,6 +534,12 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
             cigar = record.cigartuples or []
             qc.tally_total(ref_name)
             qc.tally_strand(ref_name, record.is_reverse)
+            if length_dist is not None and not record.is_secondary and not record.is_supplementary:
+                length_dist.tally(
+                    ref_name,
+                    record.query_length,
+                    calculate_ref_consuming_length_before_end_soft(cigar),
+                )
             if sum_match_del_skip_cigar(cigar) == ref_lengths[ref_name]:
                 qc.tally_fl(ref_name)
 
@@ -563,6 +573,8 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
 
         logger.info("Processed {} records.", record_count)
         watch.summarize()
+        if length_dist is not None:
+            length_dist.write_results()
         qc.write_results(args.output, error_collector)
     finally:
         bam_reader.close()

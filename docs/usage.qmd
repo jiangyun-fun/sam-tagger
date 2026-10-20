@@ -224,6 +224,14 @@ Strand counts read the FLAG `0x10` bit of every **mapped** record, including
 secondary and supplementary alignments, so
 `forward_reads + reverse_reads == total_reads` in every row.
 
+Pass `--length-dist-out PATH` for an optional second output: per-reference
+length distributions in long format `(seq_name, metric, value, count)`, with
+`metric ∈ {read_len, dm}`. `read_len` is the full observed read length
+(soft clips included); `dm` is the `M+D` CIGAR sum (the `--add-dm` tag
+computation). Distributions count **primary alignments only** — secondary
+(`0x100`) and supplementary (`0x800`) records are excluded, because secondary
+records double-count reads and supplementary records are hard-clip fragments.
+
 ```bash
 # full summary
 sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.csv

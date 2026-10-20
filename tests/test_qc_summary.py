@@ -257,7 +257,56 @@ def test_qc_summary_strand_all_reverse(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. CLI dispatch
+# 7. length-dist side output (read_len / dm), primary alignments only
+# ---------------------------------------------------------------------------
+
+
+def test_qc_summary_length_dist(tmp_path: Path) -> None:
+    # primary reads on seq1:
+    #   a: 24M4S -> read_len 28 (soft clips included), dm 24
+    #   b: 24M2D -> read_len 24, dm 26 (M+D only)
+    #   c: 24M4S -> same as a -> read_len 28 x2, dm 24 x2
+    # excluded: secondary (0x100) d, supplementary (0x800) e, unmapped f
+    sam = (
+        f"a\t0\tseq1\t1\t60\t24M4S\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"b\t0\tseq1\t1\t60\t24M2D\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\n"
+        f"c\t0\tseq1\t1\t60\t24M4S\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"d\t256\tseq1\t1\t60\t24M4S\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"e\t2048\tseq1\t1\t60\t24M4S\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"f\t4\t*\t0\t0\t*\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+    )
+    setup = setup_env(tmp_path, None, HDR_1_28, sam)
+    dist_out = tmp_path / "dist.parquet"
+    qc_out = tmp_path / "qc.parquet"
+    run_qc_summary(
+        QcSummaryArgs(
+            input_bam=setup.input_bam, output=qc_out, length_dist_out=dist_out
+        )
+    )
+
+    df = pl.read_parquet(dist_out)
+    rows = {(r["seq_name"], r["metric"], r["value"]): r["count"] for r in df.iter_rows(named=True)}
+    assert rows == {
+        ("seq1", "read_len", 28): 2,  # a + c
+        ("seq1", "read_len", 24): 1,  # b
+        ("seq1", "dm", 24): 2,  # a + c
+        ("seq1", "dm", 26): 1,  # b (24M + 2D)
+    }
+    # digest unchanged by the side output
+    qc = pl.read_parquet(qc_out)
+    assert qc["total_reads"].to_list() == [5]  # all mapped, incl. secondary/supplementary
+
+
+def test_qc_summary_length_dist_absent_flag_writes_nothing(tmp_path: Path) -> None:
+    sam = f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+    setup = setup_env(tmp_path, None, HDR_1_28, sam)
+    dist_out = tmp_path / "dist.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=tmp_path / "qc.parquet"))
+    assert not dist_out.exists()
+
+
+# ---------------------------------------------------------------------------
+# 8. CLI dispatch
 # ---------------------------------------------------------------------------
 
 

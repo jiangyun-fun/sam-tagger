@@ -278,6 +278,13 @@ class QcSummaryArgs:
             help="CSV config (tc/amp/error primer params). Omit to compute FL + read counts only.",
         ),
     ] = None
+    length_dist_out: Annotated[
+        Path | None,
+        Parameter(
+            help="Optional long-format length distributions (seq_name, metric, value, count); "
+            "read_len + dm, primary alignments only.",
+        ),
+    ] = None
     verbose: Annotated[
         int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")
     ] = 0

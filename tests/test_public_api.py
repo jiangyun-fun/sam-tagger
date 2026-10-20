@@ -15,6 +15,7 @@ def test_public_imports_callable() -> None:
         AnnotateArgs,
         ErrorStatsArgs,
         ErrorStatsCollector,
+        LengthDistCollector,
         PileupArgs,
         PileupStatsCollector,
         QcSummaryArgs,
@@ -34,5 +35,6 @@ def test_public_imports_callable() -> None:
     assert callable(run_qc_summary)
     assert callable(load_config)
     for cls in (AnnotateArgs, ErrorStatsArgs, PileupArgs, QcSummaryArgs,
-                StatsCollector, ErrorStatsCollector, PileupStatsCollector, QcSummaryCollector):
+                StatsCollector, ErrorStatsCollector, LengthDistCollector,
+                PileupStatsCollector, QcSummaryCollector):
         assert isinstance(cls, type)

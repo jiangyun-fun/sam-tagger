@@ -18,6 +18,7 @@ from sam_tagger.cli import AnnotateArgs, ErrorStatsArgs, PileupArgs, QcSummaryAr
 from sam_tagger.config import load_config
 from sam_tagger.lib import run_annotate, run_error_stats, run_pileup, run_qc_summary
 from sam_tagger.stats.error_stats import ErrorStatsCollector
+from sam_tagger.stats.length_dist import LengthDistCollector
 from sam_tagger.stats.pileup_stats import PileupStatsCollector
 from sam_tagger.stats.qc_summary import QcSummaryCollector
 from sam_tagger.stats.tag_stats import StatsCollector
@@ -30,6 +31,7 @@ __all__ = [
     "QcSummaryArgs",
     "StatsCollector",
     "ErrorStatsCollector",
+    "LengthDistCollector",
     "PileupStatsCollector",
     "QcSummaryCollector",
     "load_config",
