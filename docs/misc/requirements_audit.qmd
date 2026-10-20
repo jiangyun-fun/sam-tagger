@@ -255,3 +255,66 @@ Git:
 - `63f8a48` feat: add forward/reverse strand read columns to qc-summary
 
 Packages/Environments: None
+
+## assess read-length and DM distribution outputs in qc-summary
+
+```
+level: medium
+date: 2026-10-20
+```
+
+### description
+
+The user proposed adding per-reference read-length and DM-tag length
+distributions to qc-summary, encoded as a JSON object (pos->count) or a
+dense array (index=pos) inside the Parquet, and asked for agreement with
+room to refute.
+
+### result
+
+1. Answered: agreed on the metrics (read length and DM are cheap and QC-relevant); refuted the JSON encoding with a live demo — polars cannot point-lookup numeric JSON keys (json_path_match Eof error) and json_decode needs a pre-declared dtype.
+2. Answered: soft-refuted the dense-array encoding — workable but index semantics stay implicit and every plot/aggregate unnests back to relational.
+3. Answered: recommended a long-format optional side output (seq_name, metric, value, count), the existing TypedStats house pattern.
+4. Answered: flagged the denominator decision — primary-only (each read once) vs all-mapped (strand-column consistency).
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
+
+## implement qc-summary length-distribution side output
+
+```
+level: high
+date: 2026-10-20
+```
+
+### description
+
+Continuation after the user accepted the recommended encoding (long-format
+side file over JSON/array columns) and denominator (primary alignments
+only) for per-reference read-length and DM distributions in qc-summary.
+
+### result
+
+1. Implemented --length-dist-out: (seq_name, metric, value, count) rows for read_len (query_length, soft clips included) and dm (M+D sum); primary-only; digest schema untouched at 18 columns.
+2. Verified: 137 tests, ruff, pyright green; end-to-end 300-record run splits read_len{50:300} / dm{50:100, 30:200}.
+3. Exported LengthDistCollector in the public API and updated test_public_api.py in the same change.
+
+### change
+
+Files:
+- created: `src/sam_tagger/stats/length_dist.py`,
+  `docs/plans/20261020-213209_add-qc-summary-length-dist.plan.qmd`,
+  `docs/plans/20261020-213711_add-qc-summary-length-dist.report.qmd`
+- updated: `src/sam_tagger/parquet_writer.py`, `src/sam_tagger/cli.py`,
+  `src/sam_tagger/lib.py`, `src/sam_tagger/__init__.py`,
+  `tests/test_qc_summary.py`, `tests/test_public_api.py`, `docs/usage.qmd`,
+  `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `91fbc63` feat: add read-length and dm distribution side output to qc-summary
+
+Packages/Environments: None

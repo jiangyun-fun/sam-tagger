@@ -1,0 +1,505 @@
+---
+title: "Add read-length and dm distribution side output to qc-summary — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📏</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### optional length-distribution side output in qc-summary
+
+```
+level: high
+```
+
+#### reason
+
+A new test asserts the exact `(seq_name, metric, value, count)` rows for a mixed BAM (soft clips, deletion, secondary, supplementary, unmapped), the full suite passes, and an end-to-end run produces the expected split (read_len 50 = 300 reads incl. soft clips; dm 30 = 200 partial alignments).
+
+#### description
+
+```
+type: [text]
+```
+
+1. `qc-summary --length-dist-out PATH` writes a second Parquet in long format: `(seq_name, metric ∈ {read_len, dm}, value, count)`, rows sorted by seq_name, metric, value.
+2. `read_len` is `record.query_length` — the full observed read, soft clips included; `dm` is the `M+D` CIGAR sum (the `--add-dm` tag computation, `calculate_ref_consuming_length_before_end_soft`).
+3. Distributions count primary alignments only; the main digest keeps its 18 flat typed columns.
+4. Without the flag, no side file is written and behavior is unchanged.
+
+#### before
+
+No distribution output existed anywhere in sam-tagger. The qc digest reduced length information to the boolean `fl`; consumers wanting peaks/modes of the length distribution had to compute them downstream from the BAM.
+
+#### after
+
+One optional flag emits the plot-ready histograms (one row per distinct length) next to the digest, in the same relational distribution shape as the existing `TypedStats` outputs.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/length_dist.py:23-51` — `LengthDistCollector` (owns its output path, `ErrorStatsCollector` pattern) and the sorted long-format write.
+- `src/sam_tagger/parquet_writer.py:150-183` — `DistributionStats` 4-column writer (`value` UInt32, `count` UInt64).
+- `src/sam_tagger/cli.py:282-288` — `length_dist_out` on `QcSummaryArgs`.
+- `src/sam_tagger/lib.py:521-524` — collector instantiation.
+- `src/sam_tagger/lib.py:537-543` — primary-only gating and the tally call.
+- `src/sam_tagger/lib.py:574-575` — the write after the loop.
+- `tests/test_qc_summary.py:216-279` — `test_qc_summary_length_dist` and `test_qc_summary_length_dist_absent_flag_writes_nothing`.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### read_len rows are absent for sequence-less records
+
+```
+level: low
+```
+
+#### reason
+
+The tally skips the `read_len` metric when `query_length` is None by design; such records still contribute a `dm` row.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Records with no stored sequence (`*`) have no read length; they appear only in the `dm` distribution.
+2. Sequence-less records are rare in amplicon BAMs.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/length_dist.py:34-38` — the `read_len is not None` guard.
+
+:::
+
+## caveat
+
+### distributions and the digest use different denominators
+
+```
+level: medium
+```
+
+#### reason
+
+The choice is deliberate and documented; a test pins the exclusion of secondary/supplementary records.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The digest's `total_reads`/strand columns count all mapped records; the distributions count primary alignments only.
+2. A consumer joining the two files must not expect `sum(count)` per metric to equal `total_reads` when secondary/supplementary records exist.
+3. Zero-read references emit no distribution rows (a distribution of nothing has no natural rows), unlike the digest's zero-filled rows.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_qc_summary.py:234-240` — secondary (0x100) `d` and supplementary (0x800) `e` are absent from every distribution row while `total_reads` is 5.
+- `docs/usage.qmd:229-238` — the shipped primary-only wording.
+
+:::
+
+## assumption
+
+### the recommended encoding and denominator fit the downstream consumers
+
+```
+level: medium
+```
+
+#### reason
+
+The user selected both the long-format side file and primary-only counting from options I presented with evidence; I have not seen the consuming pipeline code.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a consumer later needs all-mapped distributions or dense arrays, the collector gates are single-point changes.
+2. The metric set `{read_len, dm}` matches the user's request; more metrics (e.g. aligned length excl. soft clips) would be additional rows, not schema changes.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### the distribution output is delivered without touching the digest contract
+
+```
+level: high
+```
+
+#### reason
+
+The verification chain is green and the encoding decision was made against live evidence (polars JSON/array demos) rather than preference.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. The main qc-summary schema stays at 18 flat typed columns; the distribution is an additive optional file.
+2. 137 tests pass (135 before; 2 new), ruff and pyright report nothing.
+3. End-to-end check: 300-record BAM splits as `read_len 50 x300` / `dm 50 x100 + dm 30 x200` — soft clips in `read_len` only.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+pixi run -e dev test      → 137 passed
+pixi run -e dev lint      → All checks passed!
+pixi run -e dev typecheck → 0 errors, 0 warnings, 0 informations
+end-to-end /tmp/once.bam: read_len{50:300}, dm{50:100, 30:200}
+```
+
+:::
+
+## recommendation
+
+### M: notify downstream consumers of the additive qc-summary schema
+
+```
+level: medium
+```
+
+#### reason
+
+Carried from the strand-columns report: the digest grew 15 → 18 columns and now gains an optional sibling file; strict-schema consumers break on additive changes too. I have not audited who those consumers are.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Tell qc-summary consumers about the three new columns and the optional side file before they upgrade.
+2. The same notice still applies to the v0.3.0 `error.parquet` `to_*` columns.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### L: prefer read-time column projection over a writer-side column-selection flag
+
+```
+level: low
+```
+
+#### reason
+
+Demonstrated this session: `pl.read_parquet(path, columns=[...])` decodes only the named column chunks.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a narrower view is wanted, project columns in the consuming pipeline step.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Session demo: 3-column read from a 15-column Parquet with no writer support.
+
+:::
+
+### L: whole-file strand counts need no sam-tagger run
+
+```
+level: low
+```
+
+#### reason
+
+Carried: two global numbers are one samtools command away.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `samtools view -c -f 16` / `-F 16` gives the whole-file counts.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: decide the release that carries the strand columns and the length-dist output
+
+```
+level: medium
+```
+
+#### reason
+
+Both features are committed but unreleased; version bumps and releases are maintainer decisions in this repo (v0.3.0 was cut on explicit request).
+
+#### description
+
+```
+type: [text]
+```
+
+1. Choose the bump size and fold both output changes into the release notes when cutting the next release.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### suite size after the change
+
+```
+level: high
+```
+
+#### reason
+
+The number comes verbatim from the final verification run this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 137 tests pass (135 before; 2 new).
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+137 passed
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### two pyright iterations on the write-path guard
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first guard checked only `length_dist is not None`, so `args.length_dist_out` stayed `Path | None` (pyright error 1).
+2. The second fix checked only the arg, so `length_dist` stayed `LengthDistCollector | None` (pyright error 2).
+3. The working fix makes the collector own its output path from construction — the `ErrorStatsCollector` pattern — and I should have started there instead of patching guards twice.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+lib.py:575 - error: "write_results" is not a known attribute of "None"
+→ constructor-owned path → 0 errors
+```
+
+:::
+
+### TDD held: fixture error found before implementation mattered
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first RED run failed on an invalid SAM fixture (SEQ length vs CIGAR), which I fixed before reaching the intended RED (`TypeError: unexpected keyword argument 'length_dist_out'`).
+2. The intended RED then turned green with the implementation, and the fixture mistake caused no rework beyond the fixture itself.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+OSError: truncated file (bad fixture) → fixed fixture →
+TypeError: QcSummaryArgs.__init__() got an unexpected keyword argument 'length_dist_out'
+→ implementation → 137 passed
+```
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                                  |
+|---------|-----------------------------------------------------------------------|
+| created | `src/sam_tagger/stats/length_dist.py`                                 |
+| updated | `src/sam_tagger/parquet_writer.py`                                    |
+| updated | `src/sam_tagger/cli.py`                                               |
+| updated | `src/sam_tagger/lib.py`                                               |
+| updated | `src/sam_tagger/__init__.py`                                          |
+| updated | `tests/test_qc_summary.py`                                            |
+| updated | `tests/test_public_api.py`                                            |
+| updated | `docs/usage.qmd`                                                      |
+| created | `docs/plans/20261020-213209_add-qc-summary-length-dist.plan.qmd`     |
+| created | `docs/plans/20261020-213711_add-qc-summary-length-dist.report.qmd`   |
+| updated | `docs/misc/requirements_audit.qmd`                                    |
+| updated | `docs/misc/next_and_recommendation.qmd`                               |
+
+1. Git: `91fbc63` `feat: add read-length and dm distribution side output to qc-summary`.
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261020-213209 plan](20261020-213209_add-qc-summary-length-dist.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+[main 91fbc63] feat: add read-length and dm distribution side output to qc-summary
+ 8 files changed, 161 insertions(+), 2 deletions(-)
+```
+
+:::
+
+## other
+
+None

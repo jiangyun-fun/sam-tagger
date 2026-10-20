@@ -1,0 +1,91 @@
+---
+title: "Plan: add qc-summary length-distribution side output"
+author: "Yun Jiang"
+date: 2026-10-20
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📏</text></svg>">
+---
+
+# Objective
+
+Add per-reference read-length and DM (aligned `M+D` span) distributions to
+`qc-summary` as an optional long-format side Parquet, keeping the main digest
+schema untouched at 18 flat columns.
+
+# Scope
+
+Decisions confirmed with the user on 2026-10-20:
+
+1. Encoding: long-format side file `--length-dist-out PATH` with columns
+   `(seq_name, metric, value, count)` where `metric ∈ {read_len, dm}` —
+   JSON and dense-array encodings were evaluated and rejected (live demo:
+   numeric JSON keys unqueryable in the project's polars; arrays need
+   unnesting for any plot/aggregate).
+2. Denominator: primary alignments only — exclude secondary (0x100) and
+   supplementary (0x800) records, because secondary records double-count
+   reads and supplementary records are hard-clip fragments.
+3. Metrics: `read_len` = `record.query_length` (full observed read, soft
+   clips included, hard clips excluded by definition); `dm` =
+   `calculate_ref_consuming_length_before_end_soft(cigar)` (M+D sum), the
+   same function the annotate `--add-dm` tag uses.
+4. Main digest unchanged; no new columns there.
+5. Reads without sequence (`query_length is None`) contribute no `read_len`
+   row but still contribute a `dm` row.
+
+# Planned steps (as-built: executed as planned, 2026-10-20; one design correction below)
+
+1. Tests first (`tests/test_qc_summary.py`): `test_qc_summary_length_dist`
+   (exact rows; secondary/supplementary/unmapped excluded; soft clips in
+   `read_len`, not `dm`) and `test_qc_summary_length_dist_absent_flag_writes_nothing`.
+   RED confirmed: `TypeError: ... unexpected keyword argument 'length_dist_out'`
+   (after fixing an invalid SAM fixture caught by the first RED run).
+2. `src/sam_tagger/parquet_writer.py`: `DistributionStats` 4-column writer.
+3. `src/sam_tagger/stats/length_dist.py`: `LengthDistCollector`. Design
+   correction vs plan: the collector OWNS its output path from construction
+   (`LengthDistCollector(path)`, `write_results()` no-arg) after two pyright
+   narrowing iterations on the alternative guard style.
+4. `src/sam_tagger/cli.py`: `length_dist_out` on `QcSummaryArgs`.
+5. `src/sam_tagger/lib.py`: instantiate when the flag is set; tally under
+   the primary-only condition; write after the loop.
+6. `src/sam_tagger/__init__.py`: `LengthDistCollector` exported;
+   `tests/test_public_api.py` expected set updated in the same change.
+7. `docs/usage.qmd`: flag, schema, metric definitions, primary-only note.
+8. Verify: 137 tests, ruff, pyright all green; end-to-end 300-record run
+   splits `read_len{50:300}` / `dm{50:100, 30:200}`. Commit `91fbc63`;
+   report at
+   [20261020-213711](20261020-213711_add-qc-summary-length-dist.report.qmd).
+
+# Files to touch
+
+- `src/sam_tagger/parquet_writer.py` — new writer dataclass.
+- `src/sam_tagger/stats/length_dist.py` — new collector module.
+- `src/sam_tagger/cli.py` — one args field.
+- `src/sam_tagger/lib.py` — loop wiring.
+- `src/sam_tagger/__init__.py` — export.
+- `tests/test_qc_summary.py` — new tests.
+- `docs/usage.qmd` — docs.
+
+# Risks
+
+- Public API grows by one export; `test_public_api.py` has an exact-set
+  assertion that must be updated in the same change.
+- None for the digest schema: additive optional output only.
+- Cost: one attribute read + one CIGAR walk per primary record — same cost
+  class as the FL walk already in the loop.
+
+# Verification criteria
+
+1. New tests pass; full suite, ruff, pyright green.
+2. Secondary/supplementary/unmapped records absent from the distribution.
+3. `read_len` includes soft clips; `dm` counts M+D only (verified against a
+   read with a deletion and trailing soft clip).
+4. Without the flag, no file is written and the digest is unchanged.
