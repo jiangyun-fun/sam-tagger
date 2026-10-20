@@ -1,0 +1,369 @@
+---
+title: "Release v0.4.0 — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### v0.4.0 published with four output features
+
+```
+level: high
+```
+
+#### reason
+
+The release workflow concluded success (run 39444128908), the GitHub Release carries both build artifacts and the Latest flag, and `sam-tagger --version` reported 0.4.0 before the tag was cut.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Version bumped in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`.
+2. Tag `v0.4.0` (annotated) pushed; `main` pushed `269168a..506574b`.
+3. GitHub Release created with curated notes covering the four features, their semantics (`--fasta`, parity conditions), and additive-schema upgrade notes.
+4. Shipped features: qc-summary strand columns (18-column digest), `--length-dist-out` distributions, `smoothed_deletion`, `total` + 8 rate columns (19-column `error.parquet`).
+
+#### before
+
+v0.3.0 carried the `error.parquet` `to_*` split only; the four output features built this week existed solely on `main`, unreachable by version-pinned consumers.
+
+#### after
+
+v0.4.0 is the Latest release with wheel and sdist attached; the strand columns, length distributions, smoothed deletions, and depth-with-rates outputs are installable artifacts with documented upgrade notes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+git push origin main v0.4.0
+   269168a..506574b  main -> main
+   * [new tag]         v0.4.0 -> v0.4.0
+release workflow: 39444128908 completed success
+assets: sam_tagger-0.4.0-py3-none-any.whl (36465 B), sam_tagger-0.4.0.tar.gz (127673 B)
+release list: v0.4.0  Latest
+sam-tagger --version → 0.4.0
+```
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+None
+
+## caveat
+
+### nine commits published at once
+
+```
+level: low
+```
+
+#### reason
+
+The push carried four feature commits plus their docs commits; all were verified green this session before the push (150 tests at HEAD).
+
+#### description
+
+```
+type: [text]
+```
+
+1. If a bisect over this range is ever needed, the per-feature plan/report pairs under `docs/plans/` document each step's verification.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log v0.3.0..v0.4.0` — four `feat:` commits, each paired with a `docs:` plan/report commit.
+
+:::
+
+## assumption
+
+None
+
+## conclusion
+
+### the release matches the v0.2.0/v0.3.0 precedent end to end
+
+```
+level: high
+```
+
+#### reason
+
+Every verification criterion from the plan is checked: version output, tag push, workflow conclusion, artifacts, release page.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. Minor bump for new user-visible outputs, additive schemas, no breaking change.
+2. The release notes name the `--fasta` requirement, the null-not-zero convention, and the samtools parity conditions.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Release: https://github.com/jiangyun-fun/sam-tagger/releases/tag/v0.4.0
+- Compare: https://github.com/jiangyun-fun/sam-tagger/compare/v0.3.0...v0.4.0
+
+:::
+
+## recommendation
+
+### M: notify downstream consumers of the additive schema changes now that v0.4.0 is public
+
+```
+level: medium
+```
+
+#### reason
+
+The release is published; consumers upgrading will meet 19-column error.parquet and 18-column qc-summary immediately.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Send the bundled notice (schema growth, `--fasta` for smoothing, parity conditions) to pipeline maintainers.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### L: prefer read-time column projection over a writer-side column-selection flag
+
+```
+level: low
+```
+
+#### reason
+
+Carried; unchanged.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Project columns in the consuming pipeline step.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### L: consider a version bump cadence note in the README
+
+```
+level: low
+```
+
+#### reason
+
+Three releases in three months, each cut on request; a one-line statement of the cadence convention would document the existing practice. Low value; optional.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If desired, note that minor bumps ship new output features and are cut on maintainer request.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### release timing
+
+```
+level: high
+```
+
+#### reason
+
+Timestamps come from the release listing and this session.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. v0.3.0 published 2026-10-13; v0.4.0 published 2026-10-20 — one week apart.
+2. Workflow run 39444128908 concluded success within the watch window.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+v0.3.0  2026-10-13T09:46:42Z
+v0.4.0  2026-10-20T14:58:45Z  Latest
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### release executed per the established checklist
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. Version bump verified through the CLI (`sam-tagger --version` → 0.4.0) before committing.
+2. The plan's verification criteria were each checked after the push; the workflow was watched to conclusion rather than assumed.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+release workflow: 39444128908 completed success
+```
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                        |
+|---------|-------------------------------------------------------------|
+| updated | `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py` |
+| created | `docs/plans/20261020-225742_release-v0.4.0.plan.qmd`       |
+| created | `docs/plans/20261020-225926_release-v0.4.0.report.qmd`     |
+| updated | `docs/misc/requirements_audit.qmd`                          |
+| updated | `docs/misc/next_and_recommendation.qmd`                     |
+
+1. Git: `506574b` `chore(release): bump version to 0.4.0` (pushed, tag `v0.4.0`).
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261020-225742 plan](20261020-225742_release-v0.4.0.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+To https://github.com/jiangyun-fun/sam-tagger.git
+   269168a..506574b  main -> main
+ * [new tag]         v0.4.0 -> v0.4.0
+```
+
+:::
+
+## other
+
+None

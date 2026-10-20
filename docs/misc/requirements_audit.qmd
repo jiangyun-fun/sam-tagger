@@ -449,3 +449,35 @@ Packages:
 - samtools >=1.24,<2 -> pixi:dev
 
 Packages/Environments: dev env extended (no new env)
+
+## release v0.4.0
+
+```
+level: high
+date: 2026-10-20
+```
+
+### description
+
+The user asked to release v0.4.0. I read this as cutting the next minor
+release so the published artifact carries the four unreleased output
+features built this session, following the v0.2.0/v0.3.0 precedent.
+
+### result
+
+1. Released v0.4.0: version bumped in three files, commit `506574b`, annotated tag `v0.4.0`, `main` + tag pushed.
+2. Created the GitHub Release with curated notes documenting the four features, the `--fasta` requirement, and the samtools parity conditions.
+3. Verified `sam-tagger --version` reports 0.4.0; release workflow run 39444128908 concluded success with wheel + sdist attached and the release marked Latest.
+
+### change
+
+Files:
+- updated: `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`
+- created: `docs/plans/20261020-225742_release-v0.4.0.plan.qmd`,
+  `docs/plans/20261020-225926_release-v0.4.0.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `506574b` chore(release): bump version to 0.4.0 (pushed, tag `v0.4.0`)
+
+Packages/Environments: None

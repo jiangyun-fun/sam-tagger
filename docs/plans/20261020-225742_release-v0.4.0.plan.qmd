@@ -29,18 +29,20 @@ breaking change — the v0.2.0/v0.3.0 precedent.
 4. `c371d52` `total` + 8 rate columns in error.parquet (9 → 19 columns;
    samtools depth -J parity test). Plus `3f767ca` (dev-env samtools).
 
-# Planned steps
+# Planned steps (as-built: executed as planned, 2026-10-20)
 
-1. Bump `0.3.0` → `0.4.0` in `pyproject.toml`, `pixi.toml`,
-   `src/sam_tagger/__init__.py`.
-2. Verify `sam-tagger --version` reports 0.4.0 locally.
-3. Commit `chore(release): bump version to 0.4.0`.
-4. Annotated tag `v0.4.0`; push `main` + tag (triggers `release.yml`,
-   which builds sdist + wheel on tag push).
-5. Create the GitHub Release with curated notes (features, semantics,
-   upgrade notes for additive schemas).
-6. Watch the release workflow to conclusion.
-7. Report + rewrite this plan as-built; audit + rolling-state update.
+1. Bumped `0.3.0` → `0.4.0` in the three files.
+2. Verified `sam-tagger --version` → 0.4.0 before committing.
+3. Commit `506574b` `chore(release): bump version to 0.4.0`.
+4. Annotated tag `v0.4.0` pushed with `main` (`269168a..506574b`);
+   `release.yml` triggered on the tag.
+5. GitHub Release created with curated notes: four features, `--fasta`
+   requirement, parity conditions, additive-schema upgrade notes.
+6. Workflow watched to conclusion: run `39444128908` — success; assets
+   `sam_tagger-0.4.0-py3-none-any.whl` + `sam_tagger-0.4.0.tar.gz`
+   attached; release marked Latest.
+7. Report at [20261020-225926](20261020-225926_release-v0.4.0.report.qmd);
+   audit and rolling state updated.
 
 # Risks
 
