@@ -1,0 +1,430 @@
+---
+title: "Rename AP/TC values to snake_case — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐍</text></svg>">
+---
+
+## feature
+
+None
+
+## fix
+
+### mixed naming convention in output values and columns
+
+```
+level: medium
+```
+
+#### reason
+
+A grep proves the pre-change state: every column name was snake_case and the length-dist metric values (`read_len`, `dm`) were snake_case, while the AP values/columns were PascalCase — `ap_Both` was a mixed-convention column name.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. AP values: `Both`/`StartOnly`/`EndOnly`/`Neither` → `both`/`start_only`/`end_only`/`neither` on all three surfaces (tag value, `--ap-stats` types, qc-summary columns).
+2. TC value: `OnTarget` → `on_target`.
+3. qc-summary columns: `ap_Both`… → `ap_both`/`ap_start_only`/`ap_end_only`/`ap_neither`.
+
+#### before
+
+The same output family mixed PascalCase enum values with snake_case column names and snake_case metric values.
+
+#### after
+
+Every value and column across all outputs follows one snake_case convention.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/processing.py:242-267` — `check_amplicon_primers` returns the snake_case values (single source).
+- `src/sam_tagger/stats/qc_summary.py:50-53,92-100,125-128` — schema keys, match arms, appends.
+- `src/sam_tagger/stats/tag_stats.py:79` — ap-stats type list.
+- `src/sam_tagger/lib.py` — TC `"on_target"`; `src/sam_tagger/cli.py` help texts.
+- Post-change grep: no enum PascalCase remains in `src/` or `docs/usage.qmd` (the English word "Both" in a pileup comment is prose, not the enum).
+
+:::
+
+## limitation
+
+### old tagged BAMs carry old values forever
+
+```
+level: medium
+```
+
+#### reason
+
+The rename changes what new runs write; existing files are not rewritten.
+
+#### description
+
+```
+type: [text]
+```
+
+1. qc-summary is unaffected by old BAMs — it recomputes and never reads tags.
+2. Consumers joining OLD tagged BAMs with NEW stats files must translate the four AP values and `OnTarget` once.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/lib.py` `run_qc_summary` — recomputation path (established in the 2026-10-20 assessment).
+
+:::
+
+## caveat
+
+### downstream filters on old spellings fail silently
+
+```
+level: high
+```
+
+#### reason
+
+Structural: a filter like `type == "Both"` returns empty rows, not an error.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Pipelines consuming the AP tag value, the TC tag value, `--ap-stats` types, or the qc-summary `ap_*` columns must grep for the PascalCase forms before upgrading.
+2. The commit message carries the full migration table; the next release note must repeat it.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Commit `c968490` body — the BREAKING CHANGE migration table.
+
+:::
+
+## assumption
+
+### no external consumers exist beyond the user's pipelines
+
+```
+level: medium
+```
+
+#### reason
+
+The tool is one day past v0.4.0 with no known external dependents; the user chose "now" on that basis. I have not audited external usage.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If external consumers surface later, the migration table in the commit message is the canonical translation.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### the rename is complete, atomic, and verified
+
+```
+level: high
+```
+
+#### reason
+
+All three surfaces derive from the single source; the full suite passes with the new expectations, and the grep check confirms no PascalCase remains.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 150 tests pass with snake_case expectations (tests were updated first and confirmed RED before the source changed).
+2. ruff and pyright report nothing.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+pixi run -e dev test      → 150 passed
+pixi run -e dev lint      → All checks passed!
+pixi run -e dev typecheck → 0 errors, 0 warnings, 0 informations
+grep 'StartOnly|EndOnly|OnTarget|ap_Both' src/ docs/usage.qmd → no matches
+```
+
+:::
+
+## recommendation
+
+### M: fold the migration table into the v0.5.0 release note
+
+```
+level: medium
+```
+
+#### reason
+
+Value renames fail silently downstream; the release note is where upgraders look.
+
+#### description
+
+```
+type: [text]
+```
+
+1. When v0.5.0 is cut, reproduce the commit's BREAKING CHANGE table verbatim and lead with the silent-failure warning.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: decide when to cut v0.5.0 carrying this breaking rename — maintainer decision
+
+```
+level: medium
+```
+
+#### reason
+
+The rename sits unreleased on `main`; releases are cut on explicit request in this repo.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Cut v0.5.0 (minor with breaking content, 0.x convention) when ready; the release note leads with the migration table.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### consistency inventory after the rename
+
+```
+level: high
+```
+
+#### reason
+
+Every claim is grep-verified this session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Enum values in outputs: `both`/`start_only`/`end_only`/`neither`/`on_target` (AP/TC), `read_len`/`dm` (length-dist metrics) — all snake_case.
+2. Columns: all snake_case everywhere.
+3. English prose retains normal capitalization (e.g. the pileup comment "Both fall back").
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `grep -rn 'StartOnly|EndOnly|OnTarget|ap_Both' src/ docs/usage.qmd` → no matches.
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### TDD held for a pure rename
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The six test files were converted to snake_case expectations first; the run failed (`KeyError: 'ap_both'`) against the unchanged source.
+2. The source rename then turned the suite green in one step.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+FAILED tests/test_qc_summary.py::test_qc_summary_multi_ref - KeyError: 'ap_both'
+→ source rename → 150 passed
+```
+
+:::
+
+### sed scoped to exact quoted forms; two leftovers caught by verification
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The batch rename targeted quoted forms and `ap_*` column names only; the verification grep then surfaced exactly two leftovers — an RST double-backtick docstring (fixed) and an English-word "Both" in prose (correctly left alone).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `qc_summary.py:88-89` docstring fixed; `pileup_stats.py:172` prose untouched.
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                         |
+|---------|--------------------------------------------------------------|
+| updated | `src/sam_tagger/processing.py`                               |
+| updated | `src/sam_tagger/stats/qc_summary.py`                         |
+| updated | `src/sam_tagger/stats/tag_stats.py`                          |
+| updated | `src/sam_tagger/lib.py`                                      |
+| updated | `src/sam_tagger/cli.py`                                      |
+| updated | `tests/test_processing.py`                                   |
+| updated | `tests/test_stats.py`                                        |
+| updated | `tests/test_qc_summary.py`                                   |
+| updated | `tests/test_parquet_writer.py`                               |
+| updated | `tests/test_integration.py`                                  |
+| updated | `tests/test_complex.py`                                      |
+| updated | `docs/usage.qmd`                                             |
+| created | `docs/plans/20261021-101934_rename-ap-tc-values-snake.plan.qmd` |
+| created | `docs/plans/20261021-102247_rename-ap-tc-values-snake.report.qmd` |
+| updated | `docs/misc/requirements_audit.qmd`                           |
+| updated | `docs/misc/next_and_recommendation.qmd`                      |
+
+1. Git: `c968490` `refactor!: rename AP/TC tag values and qc-summary ap_* columns to snake_case` (not pushed).
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261021-101934 plan](20261021-101934_rename-ap-tc-values-snake.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+c968490 refactor!: rename AP/TC tag values and qc-summary ap_* columns to snake_case
+```
+
+:::
+
+## other
+
+None

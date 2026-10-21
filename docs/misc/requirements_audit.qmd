@@ -504,3 +504,64 @@ Files:
 - updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
 
 Packages/Environments: None
+
+## assess snake_case rename of AP status values
+
+```
+level: medium
+date: 2026-10-21
+```
+
+### description
+
+The user proposed renaming the Both/StartOnly/EndOnly/Neither values to
+snake_case for convention consistency, and asked for my position.
+
+### result
+
+1. Answered: agreed the state is inconsistent — grep evidence: column names and the new length-dist metric values are snake_case while AP values/columns are PascalCase (ap_Both is a mixed-convention column name).
+2. Answered: mechanically cheap (single source in check_amplicon_primers, ~15 line changes + 6 test files + docs) but a BREAKING change on three output surfaces whose downstream failure mode is silent (filters yield empty, not errors).
+3. Answered: flagged the same-class sibling TC value "OnTarget" and the timing argument (v0.4.0 is one day old; renames get costlier with every new consumer).
+
+### change
+
+Files:
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Packages/Environments: None
+
+## rename AP/TC values to snake_case
+
+```
+level: medium
+date: 2026-10-21
+```
+
+### description
+
+After approving the assessment (AP + TC scope, breaking refactor! now),
+the user's proposal was implemented: rename Both/StartOnly/EndOnly/
+Neither and OnTarget to snake_case for output-wide convention consistency.
+
+### result
+
+1. Implemented the rename atomically from the single source (check_amplicon_primers) plus the TC literal; qc-summary columns became ap_both/ap_start_only/ap_end_only/ap_neither.
+2. Verified TDD-first: tests converted before the source (RED KeyError 'ap_both'), then 150 tests, ruff, pyright green; grep confirms no enum PascalCase remains in src/ or usage.qmd.
+3. Committed as refactor! c968490 with the BREAKING CHANGE migration table; v0.5.0 release left to explicit request.
+
+### change
+
+Files:
+- updated: `src/sam_tagger/processing.py`, `src/sam_tagger/stats/qc_summary.py`,
+  `src/sam_tagger/stats/tag_stats.py`, `src/sam_tagger/lib.py`, `src/sam_tagger/cli.py`,
+  `tests/test_processing.py`, `tests/test_stats.py`, `tests/test_qc_summary.py`,
+  `tests/test_parquet_writer.py`, `tests/test_integration.py`, `tests/test_complex.py`,
+  `docs/usage.qmd`
+- created: `docs/plans/20261021-101934_rename-ap-tc-values-snake.plan.qmd`,
+  `docs/plans/20261021-102247_rename-ap-tc-values-snake.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `c968490` refactor!: rename AP/TC tag values and qc-summary ap_* columns to snake_case
+
+Packages/Environments: None

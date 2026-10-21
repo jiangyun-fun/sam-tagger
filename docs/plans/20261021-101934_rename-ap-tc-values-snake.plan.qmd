@@ -1,0 +1,80 @@
+---
+title: "Plan: rename AP/TC values to snake_case"
+author: "Yun Jiang"
+date: 2026-10-21
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐍</text></svg>">
+---
+
+# Objective
+
+Rename the PascalCase enum values to snake_case so every value and column
+in the outputs follows one convention: AP `Both`/`StartOnly`/`EndOnly`/
+`Neither` → `both`/`start_only`/`end_only`/`neither`, and TC `OnTarget` →
+`on_target`. Breaking change, shipped as `refactor!` one day after
+v0.4.0 while the consumer base is smallest.
+
+# Scope
+
+Approved by the user on 2026-10-21 (option: AP + TC, now). All three
+output surfaces derive from single sources:
+
+1. `check_amplicon_primers` (`processing.py:239-264`) — the AP value
+   source; feeds the AP tag value, the qc-summary `ap_*` columns, and the
+   `--ap-stats` types (`tag_stats.py:79`).
+2. TC `"OnTarget"` at `lib.py:290` (+ `cli.py` help texts).
+3. qc-summary schema keys `ap_Both`… → `ap_both`…
+   (`qc_summary.py:50-53,93-99,125+`).
+
+Renamed surfaces for the release note: AP BAM tag values, TC BAM tag
+value, qc-summary column names, `--ap-stats` `type` values.
+
+# Planned steps (as-built: executed as planned, 2026-10-21)
+
+1. Tests first (RED): six test files converted; run failed with
+   `KeyError: 'ap_both'` against the unchanged source.
+2. Renamed in `processing.py` (single source), `qc_summary.py`,
+   `tag_stats.py`, `lib.py` (`on_target`), `cli.py` help texts. Batch sed
+   scoped to quoted forms + `ap_*` columns; the verification grep surfaced
+   two leftovers — the RST docstring in `tally_ap` (fixed) and the English
+   word "Both" in a pileup comment (prose, correctly untouched).
+3. Verify: 150 tests, ruff, pyright green.
+4. `docs/usage.qmd`: three spellings fixed; grep clean.
+5. Commit `c968490` `refactor!:` with the BREAKING CHANGE migration table
+   in the body.
+6. Report at
+   [20261021-102247](20261021-102247_rename-ap-tc-values-snake.report.qmd);
+   audit and rolling state updated. No release cut — v0.5.0 is a
+   maintainer decision.
+
+# Files to touch
+
+- `src/sam_tagger/processing.py`, `stats/qc_summary.py`, `stats/tag_stats.py`,
+  `lib.py`, `cli.py`
+- `tests/test_processing.py`, `test_stats.py`, `test_qc_summary.py`,
+  `test_parquet_writer.py`, `test_integration.py`, `test_complex.py`
+- `docs/usage.qmd`
+
+# Risks
+
+- Breaking for downstream consumers with a silent failure mode (filters
+  on old values yield empty results) — mitigated by the immediate timing
+  and a loud release note when v0.5.0 is cut.
+- Old tagged BAMs carry old values; qc-summary is unaffected (it
+  recomputes and never reads tags), but consumer-side joins of old BAMs
+  with new stats files must translate.
+
+# Verification criteria
+
+1. Full suite, ruff, pyright green with the new expectations.
+2. No PascalCase value remains in `src/` or `docs/usage.qmd` (grep).
+3. The end-to-end examples still produce consistent tag↔column pairs.
