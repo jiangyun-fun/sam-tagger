@@ -9,6 +9,4 @@ None
 
 ## recommendation
 
-1. M: notify downstream consumers of the v0.4.0 additive schema changes (error.parquet 19 columns, qc-summary 18 + optional length-dist file, --fasta for smoothed_deletion, samtools parity conditions)
-2. L: prefer read-time column projection (polars/duckdb `columns=`/SELECT) over a writer-side column-selection flag — parquet readers prune column chunks natively
-3. L: whole-file strand counts need no sam-tagger run — `samtools view -c -f 16` / `-F 16` covers them
+None

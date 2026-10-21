@@ -481,3 +481,26 @@ Git:
 - `506574b` chore(release): bump version to 0.4.0 (pushed, tag `v0.4.0`)
 
 Packages/Environments: None
+
+## expire rolling recommendation items
+
+```
+level: low
+date: 2026-10-21
+```
+
+### description
+
+The user asked to expire all three rolling recommendation items (schema
+notice, read-time projection preference, samtools global counts).
+
+### result
+
+1. Expired the three items; the recommendation list is now None.
+
+### change
+
+Files:
+- updated: `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd`
+
+Packages/Environments: None
