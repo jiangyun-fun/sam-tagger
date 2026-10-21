@@ -1,0 +1,272 @@
+---
+title: "Release v0.5.0 — Report"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+## feature
+
+### v0.5.0 published carrying the snake_case rename
+
+```
+level: high
+```
+
+#### reason
+
+The release workflow concluded success, the GitHub Release is Latest with both artifacts, the curated notes (led by the migration table) replaced the auto-generated body, and `sam-tagger --version` reported 0.5.0 before tagging.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Version bumped in the three files; commit `ec83436`; annotated tag `v0.5.0`; `main` + tag pushed (`2a1e95f..ec83436`).
+2. Release note leads with the silent-failure warning and the verbatim BREAKING CHANGE migration table, per the standing recommendation.
+
+#### before
+
+The rename sat unreleased on `main` after `c968490`; version-pinned consumers still saw PascalCase values.
+
+#### after
+
+v0.5.0 is the Latest release; upgraders land on the migration table first.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+   2a1e95f..ec83436  main -> main
+ * [new tag]         v0.5.0 -> v0.5.0
+workflow: conclusion=success  displayTitle="chore(release): bump version to 0.5.0"
+assets: sam_tagger-0.5.0-py3-none-any.whl, sam_tagger-0.5.0.tar.gz
+release list: v0.5.0  Latest  2026-10-21T02:30:18Z
+sam-tagger --version → 0.5.0
+```
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+None
+
+## caveat
+
+### release-creation race between `gh` and the workflow
+
+```
+level: low
+```
+
+#### reason
+
+The workflow's `contents: write` permission auto-created the release on tag push before my `gh release create` ran (`Release.tag_name already exists`); the fix was `gh release edit` with the curated notes.
+
+#### description
+
+```
+type: [text]
+```
+
+1. For future releases, expect the workflow to create the release object; edit rather than create, or delay creation until after the workflow finishes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+gh release create → "Release.tag_name already exists"
+gh release view → body_len 86, assets already attached
+gh release edit → curated notes in place
+```
+
+:::
+
+## assumption
+
+None
+
+## conclusion
+
+### minor-with-breaking follows the repo's 0.x convention
+
+```
+level: high
+```
+
+#### reason
+
+The precedent is in-repo: the TOML→CSV `refactor!` shipped as v0.2.0; this `refactor!` ships as v0.5.0.
+
+#### description
+
+```
+type: [text]
+```
+
+1. v0.4.0 → v0.5.0, one breaking change, no other deltas — the compare link in the notes states this.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Release: https://github.com/jiangyun-fun/sam-tagger/releases/tag/v0.5.0
+- Compare: https://github.com/jiangyun-fun/sam-tagger/compare/v0.4.0...v0.5.0
+
+:::
+
+## recommendation
+
+None
+
+## next
+
+None
+
+## observation
+
+### release cadence
+
+```
+level: high
+```
+
+#### reason
+
+Timestamps come from the release listing.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. v0.3.0 → v0.4.0: 7 days; v0.4.0 → v0.5.0: 1 day (breaking rename released immediately while the consumer base is smallest — the timing argument from the rename assessment).
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+v0.3.0  2026-10-13   v0.4.0  2026-10-20   v0.5.0  2026-10-21 (Latest)
+```
+
+:::
+
+## process
+
+<!-- audit of significant actions or decisions between plan and report -->
+
+### release-creation race handled without data loss
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The auto-created release carried an 86-char body and both assets; `gh release edit` replaced only the body — assets and tag stayed intact, verified after the edit.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Post-edit view: assets intact, curated notes in place.
+
+:::
+
+## change
+
+### files and commits
+
+```
+level: high
+```
+
+#### reason
+
+These are recorded facts from `git` and the file system, checked this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                        |
+|---------|-------------------------------------------------------------|
+| updated | `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py` |
+| created | `docs/plans/20261021-102929_release-v0.5.0.plan.qmd`       |
+| created | `docs/plans/20261021-103110_release-v0.5.0.report.qmd`     |
+| updated | `docs/misc/requirements_audit.qmd`                          |
+| updated | `docs/misc/next_and_recommendation.qmd`                     |
+
+1. Git: `ec83436` `chore(release): bump version to 0.5.0` (pushed, tag `v0.5.0`).
+2. Git: this report, the as-built plan, the audit, and the rolling state file follow in a docs commit. The plan pair: [20261021-102929 plan](20261021-102929_release-v0.5.0.plan.qmd) and this report.
+3. Packages: none. Environments: none.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+   2a1e95f..ec83436  main -> main
+ * [new tag]         v0.5.0 -> v0.5.0
+```
+
+:::
+
+## other
+
+None

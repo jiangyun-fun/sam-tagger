@@ -565,3 +565,36 @@ Git:
 - `c968490` refactor!: rename AP/TC tag values and qc-summary ap_* columns to snake_case
 
 Packages/Environments: None
+
+## release v0.5.0
+
+```
+level: high
+date: 2026-10-21
+```
+
+### description
+
+The user asked to release a new version. With one unreleased change (the
+snake_case refactor!), I chose v0.5.0 following the 0.x convention
+(breaking changes ship as minor; the TOML->CSV refactor! shipped as
+v0.2.0 the same way).
+
+### result
+
+1. Released v0.5.0: version bumped in three files, commit `ec83436`, annotated tag `v0.5.0`, main + tag pushed.
+2. Release note leads with the silent-failure warning and the verbatim BREAKING CHANGE migration table; workflow concluded success; wheel + sdist attached; release marked Latest.
+3. Handled a release-creation race: the workflow auto-created the release before `gh release create`; `gh release edit` installed the curated notes without touching assets.
+
+### change
+
+Files:
+- updated: `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`
+- created: `docs/plans/20261021-102929_release-v0.5.0.plan.qmd`,
+  `docs/plans/20261021-103110_release-v0.5.0.report.qmd`
+- updated: `docs/misc/requirements_audit.qmd`, `docs/misc/next_and_recommendation.qmd`
+
+Git:
+- `ec83436` chore(release): bump version to 0.5.0 (pushed, tag `v0.5.0`)
+
+Packages/Environments: None

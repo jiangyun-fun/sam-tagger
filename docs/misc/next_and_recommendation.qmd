@@ -5,8 +5,8 @@ author: "Yun Jiang"
 
 ## next
 
-1. M: decide when to cut v0.5.0 carrying the snake_case rename — maintainer decision
+None
 
 ## recommendation
 
-1. M: fold the BREAKING CHANGE migration table from commit c968490 verbatim into the v0.5.0 release note, leading with the silent-failure warning for downstream filters
+1. L: on future releases, expect the release workflow to auto-create the GitHub release on tag push — use `gh release edit` for curated notes instead of `create`
