@@ -92,8 +92,8 @@ convention the value matches the flag, but you can rename it if needed.
 | `--add-fl`  | `FL`  | `1` if the read spans the whole reference            | —                    |
 | `--add-ms`  | `MS`  | Match start (1-based read position)                  | —                    |
 | `--add-me`  | `ME`  | Match end (1-based read position)                    | —                    |
-| `--add-tc`  | `TC`  | On-target (`OnTarget`) via cs, no errors in primers  | `--config`           |
-| `--add-ap`  | `AP`  | Amplicon primer: `Both`/`StartOnly`/`EndOnly`/`Neither` | `--config`        |
+| `--add-tc`  | `TC`  | On-target (`on_target`) via cs, no errors in primers  | `--config`           |
+| `--add-ap`  | `AP`  | Amplicon primer: `both`/`start_only`/`end_only`/`neither` | `--config`        |
 | `--add-ss`  | `SS`  | Start (5′) soft-clip length                           | —                    |
 | `--add-es`  | `ES`  | End (3′) soft-clip length                             | —                    |
 | `--add-dm`  | `DM`  | Sum of M+D CIGAR ops (aligned ref length)            | —                    |
@@ -240,7 +240,7 @@ sam-tagger qc-summary INPUT-BAM OUTPUT [ARGS]
 Read-only. One Parquet row per BAM-header reference, joining FL, TC, AP and
 per-base error counts/rate into a single digest. Columns: `seq_name, total_reads,
 forward_reads, reverse_reads, forward_pct, fl, fl_pct, on_target, on_target_pct,
-ap_Both, ap_StartOnly, ap_EndOnly, ap_Neither, mismatches, insertions, deletions,
+ap_both, ap_start_only, ap_end_only, ap_neither, mismatches, insertions, deletions,
 aligned_bases, error_rate`.
 Zero-read references appear with zeros.
 

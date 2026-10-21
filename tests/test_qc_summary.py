@@ -75,7 +75,7 @@ def test_qc_summary_multi_ref(tmp_path: Path) -> None:
     assert qc["seq1"]["aligned_bases"] == 52
     assert qc["seq1"]["error_rate"] == pytest.approx(1 / 52)
     # no ap config -> all ap buckets 0
-    assert qc["seq1"]["ap_Both"] == qc["seq1"]["ap_Neither"] == 0
+    assert qc["seq1"]["ap_both"] == qc["seq1"]["ap_neither"] == 0
 
     # seq2: 1 perfect read.
     assert qc["seq2"]["total_reads"] == 1
@@ -118,10 +118,10 @@ def test_qc_summary_ap_all_statuses(tmp_path: Path) -> None:
 
     qc = _read_qc(out)
     row = qc["seq1"]
-    assert row["ap_Both"] == 1
-    assert row["ap_StartOnly"] == 1
-    assert row["ap_EndOnly"] == 1
-    assert row["ap_Neither"] == 1
+    assert row["ap_both"] == 1
+    assert row["ap_start_only"] == 1
+    assert row["ap_end_only"] == 1
+    assert row["ap_neither"] == 1
     assert row["total_reads"] == 4
     # every read is a full 28M -> FL on all four
     assert row["fl"] == 4
@@ -147,7 +147,7 @@ def test_qc_summary_no_config(tmp_path: Path) -> None:
     assert row["fl_pct"] == pytest.approx(0.5)
     # cs-dependent / config-dependent columns all zero
     assert row["on_target"] == 0
-    assert row["ap_Both"] == 0
+    assert row["ap_both"] == 0
     assert row["mismatches"] == 0
     assert row["aligned_bases"] == 0
     assert row["error_rate"] == 0.0

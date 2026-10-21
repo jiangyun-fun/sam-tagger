@@ -98,9 +98,9 @@ def test_complex_multi_feature_run(tmp_path: Path) -> None:
     assert itags["s1_full"]["FL"] == 1  # full-length
     assert "FL" not in itags["s1_off"]  # insertion -> not full length
     assert itags["s1_full"]["DM"] == 28
-    assert stags["s1_full"]["TC"] == "OnTarget"
+    assert stags["s1_full"]["TC"] == "on_target"
     assert "TC" not in stags["s1_off"]  # insertion in inner region -> off target
-    assert stags["s2_both"]["AP"] == "Both"
+    assert stags["s2_both"]["AP"] == "both"
     assert itags["s2_soft"]["SS"] == 5 and itags["s2_soft"]["ES"] == 6
     assert itags["s1_off"]["EE"] == 1
 

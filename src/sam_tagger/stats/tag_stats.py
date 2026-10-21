@@ -76,7 +76,7 @@ class StatsCollector:
         if self._ap_stats_path is None or self._ap_stats is None or self._all_ap_refs is None:
             return
         logger.info("Writing AP tag statistics to {}", self._ap_stats_path)
-        ap_statuses = ["Both", "EndOnly", "Neither", "StartOnly"]
+        ap_statuses = ["both", "end_only", "neither", "start_only"]
         typed = TypedStats("AP")
         for seq_name in self._all_ap_refs:
             type_counts = self._ap_stats.get(seq_name, {})

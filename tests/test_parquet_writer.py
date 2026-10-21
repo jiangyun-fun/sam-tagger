@@ -53,29 +53,29 @@ def test_simple_stats_write_and_read_parquet(tmp_path: Path) -> None:
 
 def test_typed_stats_to_dataframe() -> None:
     stats = TypedStats("AP")
-    stats.add("ref1", "Both", 10)
-    stats.add("ref1", "Neither", 5)
-    stats.add("ref2", "Both", 20)
+    stats.add("ref1", "both", 10)
+    stats.add("ref1", "neither", 5)
+    stats.add("ref2", "both", 20)
     df = stats.to_dataframe()
     assert df.height == 3
     assert df.width == 3
     assert df["seq_name"][0] == "ref1"
-    assert df["type"][0] == "Both"
+    assert df["type"][0] == "both"
     assert df["count"][0] == 10
 
 
 def test_typed_stats_write_and_read_parquet(tmp_path: Path) -> None:
     path = tmp_path / "test_typed.parquet"
     stats = TypedStats("AP")
-    stats.add("ref1", "Both", 100)
-    stats.add("ref1", "Neither", 50)
-    stats.add("ref2", "Both", 75)
+    stats.add("ref1", "both", 100)
+    stats.add("ref1", "neither", 50)
+    stats.add("ref2", "both", 75)
     stats.write_parquet(path)
     assert path.exists()
     result = _read_typed_parquet(path)
     assert len(result) == 3
-    assert ("ref1", "Both", 100) in result
-    assert ("ref1", "Neither", 50) in result
+    assert ("ref1", "both", 100) in result
+    assert ("ref1", "neither", 50) in result
 
 
 def test_positional_error_stats_to_dataframe() -> None:

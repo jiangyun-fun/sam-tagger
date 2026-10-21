@@ -145,10 +145,10 @@ def test_check_amplicon_primers() -> None:
     result = check_amplicon_primers(
         [(BAM_CMATCH, 100)], seq, 0, params,
     )
-    assert result == "Both"
+    assert result == "both"
 
     # Empty read → Neither
-    assert check_amplicon_primers([(BAM_CMATCH, 10)], b"", 0, params) == "Neither"
+    assert check_amplicon_primers([(BAM_CMATCH, 10)], b"", 0, params) == "neither"
 
 
 # --- Sub-read extraction test (from Rust) ---

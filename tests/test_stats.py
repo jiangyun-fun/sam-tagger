@@ -91,18 +91,18 @@ def test_tag_collector_tc(tmp_path: Path) -> None:
 
 def test_tag_collector_ap(tmp_path: Path) -> None:
     sc = _tag_collector(tmp_path, ap=True)
-    sc.record_ap("ref1", "Both")
-    sc.record_ap("ref1", "Both")
-    sc.record_ap("ref1", "StartOnly")
-    sc.record_ap("ref2", "Neither")
+    sc.record_ap("ref1", "both")
+    sc.record_ap("ref1", "both")
+    sc.record_ap("ref1", "start_only")
+    sc.record_ap("ref2", "neither")
     sc.write_results()
     df = pl.read_parquet(tmp_path / "ap.parquet")
     rows = {(r["seq_name"], r["type"]): r["count"] for r in df.iter_rows(named=True)}
     # every (ref × 4 statuses) is emitted, zero-filled
-    assert rows[("ref1", "Both")] == 2
-    assert rows[("ref1", "StartOnly")] == 1
-    assert rows[("ref1", "Neither")] == 0
-    assert rows[("ref2", "Neither")] == 1
+    assert rows[("ref1", "both")] == 2
+    assert rows[("ref1", "start_only")] == 1
+    assert rows[("ref1", "neither")] == 0
+    assert rows[("ref2", "neither")] == 1
 
 
 def test_tag_collector_nb_with_total(tmp_path: Path) -> None:

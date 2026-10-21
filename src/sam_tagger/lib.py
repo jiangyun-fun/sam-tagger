@@ -287,7 +287,7 @@ def _annotate_loop(
                 ):
                     stats.record_tc(ref_name)
                     if args.add_tc is not None:
-                        record.set_tag(args.add_tc, "OnTarget", "Z")
+                        record.set_tag(args.add_tc, "on_target", "Z")
 
             if args.add_ee is not None:
                 record.set_tag(args.add_ee, count_errors_from_parsed(parsed_ops), "i")

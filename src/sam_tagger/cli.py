@@ -85,12 +85,12 @@ class AnnotateArgs:
     add_tc: Annotated[
         str | None,
         Parameter(
-            group="Tags", help="On-target ('OnTarget') via cs tag, no errors in primer regions."
+            group="Tags", help="On-target ('on_target') via cs tag, no errors in primer regions."
         ),
     ] = None
     add_ap: Annotated[
         str | None,
-        Parameter(group="Tags", help="Amplicon primer: 'Both'/'StartOnly'/'EndOnly'/'Neither'."),
+        Parameter(group="Tags", help="Amplicon primer: 'both'/'start_only'/'end_only'/'neither'."),
     ] = None
     add_ss: Annotated[str | None, Parameter(group="Tags", help="Start (5') soft-clip length.")] = (
         None

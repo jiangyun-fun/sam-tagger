@@ -245,9 +245,9 @@ def check_amplicon_primers(
     pos: int,
     params: ApParams,
 ) -> str:
-    """Return 'Both', 'StartOnly', 'EndOnly', or 'Neither'."""
+    """Return 'both', 'start_only', 'end_only', or 'neither'."""
     if not read_seq:
-        return "Neither"
+        return "neither"
 
     start_soft_len, end_soft_len = calculate_soft_clip_lengths(cigartuples)
     has_start = _check_start_primer(cigartuples, read_seq, pos, params, start_soft_len)
@@ -255,13 +255,13 @@ def check_amplicon_primers(
 
     match (has_start, has_end):
         case (True, True):
-            return "Both"
+            return "both"
         case (True, False):
-            return "StartOnly"
+            return "start_only"
         case (False, True):
-            return "EndOnly"
+            return "end_only"
         case _:
-            return "Neither"
+            return "neither"
 
 
 def _check_start_primer(

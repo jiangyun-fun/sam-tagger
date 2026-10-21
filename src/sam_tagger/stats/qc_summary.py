@@ -47,10 +47,10 @@ _SCHEMA = {
     "fl_pct": pl.Float64,
     "on_target": pl.UInt64,
     "on_target_pct": pl.Float64,
-    "ap_Both": pl.UInt64,
-    "ap_StartOnly": pl.UInt64,
-    "ap_EndOnly": pl.UInt64,
-    "ap_Neither": pl.UInt64,
+    "ap_both": pl.UInt64,
+    "ap_start_only": pl.UInt64,
+    "ap_end_only": pl.UInt64,
+    "ap_neither": pl.UInt64,
     "mismatches": pl.UInt64,
     "insertions": pl.UInt64,
     "deletions": pl.UInt64,
@@ -85,18 +85,18 @@ class QcSummaryCollector:
     def tally_ap(self, ref: str, status: str) -> None:
         """Increment the amplicon-primer bucket for ``status``.
 
-        ``check_amplicon_primers`` returns exactly ``Both``/``StartOnly``/
-        ``EndOnly``/``Neither``; any other value is ignored (defensive).
+        ``check_amplicon_primers`` returns exactly ``both``/``start_only``/
+        ``end_only``/``neither``; any other value is ignored (defensive).
         """
         c = self._counts[ref]
         match status:
-            case "Both":
+            case "both":
                 c.ap_both += 1
-            case "StartOnly":
+            case "start_only":
                 c.ap_start_only += 1
-            case "EndOnly":
+            case "end_only":
                 c.ap_end_only += 1
-            case "Neither":
+            case "neither":
                 c.ap_neither += 1
 
     def write_results(self, path: Path, error_collector: ErrorStatsCollector | None) -> None:
@@ -122,10 +122,10 @@ class QcSummaryCollector:
             columns["fl_pct"].append((c.fl / total) if total else 0.0)
             columns["on_target"].append(c.on_target)
             columns["on_target_pct"].append((c.on_target / total) if total else 0.0)
-            columns["ap_Both"].append(c.ap_both)
-            columns["ap_StartOnly"].append(c.ap_start_only)
-            columns["ap_EndOnly"].append(c.ap_end_only)
-            columns["ap_Neither"].append(c.ap_neither)
+            columns["ap_both"].append(c.ap_both)
+            columns["ap_start_only"].append(c.ap_start_only)
+            columns["ap_end_only"].append(c.ap_end_only)
+            columns["ap_neither"].append(c.ap_neither)
             columns["mismatches"].append(mismatches)
             columns["insertions"].append(insertions)
             columns["deletions"].append(deletions)

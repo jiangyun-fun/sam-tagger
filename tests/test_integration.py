@@ -145,9 +145,9 @@ class TestTagging:
         run_annotate(annotate_args(setup, add_tc="TC"))
 
         tags = get_bam_tags_as_string(setup.output_bam)
-        assert tags["on_target_perfect"]["TC"] == "OnTarget"
-        assert tags["on_target_variant_in_primer"]["TC"] == "OnTarget"
-        assert tags["on_target_variant_no_start_primer"]["TC"] == "OnTarget"
+        assert tags["on_target_perfect"]["TC"] == "on_target"
+        assert tags["on_target_variant_in_primer"]["TC"] == "on_target"
+        assert tags["on_target_variant_no_start_primer"]["TC"] == "on_target"
         assert "TC" not in tags["off_target_variant_in_body"]
         assert "TC" not in tags["off_target_del_span_start"]
 
@@ -174,12 +174,12 @@ class TestTagging:
         run_annotate(annotate_args(setup, add_ap="AP"))
 
         tags = get_bam_tags_as_string(setup.output_bam)
-        assert tags["has_both"]["AP"] == "Both"
-        assert tags["has_start_only"]["AP"] == "StartOnly"
-        assert tags["has_end_only"]["AP"] == "EndOnly"
-        assert tags["has_neither"]["AP"] == "Neither"
-        assert tags["start_fails_min_match"]["AP"] == "EndOnly"
-        assert tags["end_in_softclip_fail"]["AP"] == "StartOnly"
+        assert tags["has_both"]["AP"] == "both"
+        assert tags["has_start_only"]["AP"] == "start_only"
+        assert tags["has_end_only"]["AP"] == "end_only"
+        assert tags["has_neither"]["AP"] == "neither"
+        assert tags["start_fails_min_match"]["AP"] == "end_only"
+        assert tags["end_in_softclip_fail"]["AP"] == "start_only"
 
     def test_new_tags_ee_il_dl(self, tmp_path: Path) -> None:
         sam_records = (
