@@ -1,0 +1,53 @@
+---
+title: "Plan: release v0.5.0"
+author: "Yun Jiang"
+date: 2026-10-21
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Objective
+
+Cut v0.5.0 so the published artifact carries the snake_case rename. Minor
+bump with breaking content — the 0.x convention; the TOML→CSV `refactor!`
+shipped as v0.2.0 the same way.
+
+# Scope — what ships in v0.5.0
+
+1. `c968490` `refactor!` — AP values → `both`/`start_only`/`end_only`/
+   `neither`, TC → `on_target`, qc-summary columns → `ap_both`/…;
+   `7faaeef` docs pair.
+
+# Planned steps
+
+1. Bump `0.4.0` → `0.5.0` in `pyproject.toml`, `pixi.toml`,
+   `src/sam_tagger/__init__.py`.
+2. Verify `sam-tagger --version` → 0.5.0.
+3. Commit `chore(release): bump version to 0.5.0`.
+4. Annotated tag `v0.5.0`; push `main` + tag (triggers `release.yml`).
+5. Create the GitHub Release; the note LEADS with the BREAKING CHANGE
+   migration table and the silent-failure warning (the standing
+   recommendation from the rename report), then the consistency rationale.
+6. Watch the workflow to conclusion; verify assets and Latest.
+7. Report + rewrite this plan as-built; audit + rolling-state update
+   (expire the v0.5.0 items).
+
+# Risks
+
+- A breaking release one day after v0.4.0 — intentional: consumer base is
+  smallest now, and the migration table is machine-greppable.
+
+# Verification criteria
+
+1. `sam-tagger --version` → 0.5.0.
+2. Workflow concludes success; wheel + sdist attached; release Latest.
+3. Release note carries the migration table verbatim from `c968490`.
