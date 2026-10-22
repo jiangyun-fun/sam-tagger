@@ -213,7 +213,7 @@ should gain a parameter making the output columns configurable.
 ### result
 
 1. Answered: keep-both recorded — no flags removed, no qc-summary columns stripped.
-2. Answered: recommended AGAINST a column-selection flag — parquet readers project columns natively at read time (demonstrated with polars columns=), and a configurable schema would break the fixed-I/O-contract design and fork the test matrix.
+2. Answered: recommended AGAINST a column-selection flag — parquet readers project columns natively (polars columns= demo); a configurable schema would break the fixed-I/O-contract design.
 3. Answered: the no-config mode already tiers the output (total/fl/fl_pct populated, rest zero), so a lite view needs no new flag.
 
 ### change
@@ -272,7 +272,7 @@ room to refute.
 
 ### result
 
-1. Answered: agreed on the metrics (read length and DM are cheap and QC-relevant); refuted the JSON encoding with a live demo — polars cannot point-lookup numeric JSON keys (json_path_match Eof error) and json_decode needs a pre-declared dtype.
+1. Answered: agreed on the metrics; refuted JSON encoding via live demo — polars cannot point-lookup numeric JSON keys (json_path_match Eof) and json_decode needs a pre-declared dtype.
 2. Answered: soft-refuted the dense-array encoding — workable but index semantics stay implicit and every plot/aggregate unnests back to relational.
 3. Answered: recommended a long-format optional side output (seq_name, metric, value, count), the existing TypedStats house pattern.
 4. Answered: flagged the denominator decision — primary-only (each read once) vs all-mapped (strand-column consistency).
@@ -335,9 +335,9 @@ of positions 4,5,6). Asked whether it is cheap and whether I agree.
 
 ### result
 
-1. Answered: agreed on the metric — a live demo shows the SAME biological deletion placed at position 4 by one alignment and position 5 by another, so current per-position counts carry a pure alignment-convention artifact.
-2. Answered: cheap in compute (O(run length) per deleted base, deletion events rare) but not free in interface — run detection requires the reference sequence because cs ":" ops encode lengths only; error-stats would gain --fasta.
-3. Answered: pinned semantics — per-base run detection over the maximal same-base reference run; region-clipped mass; mass conservation sum(smoothed)==sum(deletion); first Float64 column in error.parquet.
+1. Answered: agreed — a live demo shows the SAME deletion placed at position 4 by one alignment and 5 by another, so per-position counts carry an alignment-convention artifact.
+2. Answered: cheap in compute (O(run length) per deleted base) but not free in interface — run detection needs the reference sequence (cs ':' encodes lengths only); error-stats gains --fasta.
+3. Answered: pinned semantics — per-base detection over the maximal same-base reference run; region-clipped mass; sum(smoothed)==sum(deletion); first Float64 column in error.parquet.
 
 ### change
 
@@ -398,7 +398,7 @@ source clone rather than web docs.
 
 ### result
 
-1. Answered: samtools semantics verified from primary source (cloned samtools; bam2depth.c line-cited) — -J counts deletions (not ref-skips), -a -a zero-fills all contigs, default filter excludes unmapped/secondary/dup/qcfail.
+1. Answered: samtools semantics verified from cloned source (bam2depth.c line-cited) — -J counts deletions, -a -a zero-fills all contigs, default filter drops unmapped/secondary/dup/qcfail.
 2. Answered: cheap — the depth difference-array over cs ops is O(ops) per read (2 dict updates per op), no fasta needed; rates are 8 divisions per position at write.
 3. Answered: flagged that -J is exactly what keeps deletion_rate <= 1, and that exact samtools parity requires no secondary/qcfail/dup records (our universe keeps numerator/denominator consistent).
 
@@ -519,8 +519,8 @@ snake_case for convention consistency, and asked for my position.
 
 ### result
 
-1. Answered: agreed the state is inconsistent — grep evidence: column names and the new length-dist metric values are snake_case while AP values/columns are PascalCase (ap_Both is a mixed-convention column name).
-2. Answered: mechanically cheap (single source in check_amplicon_primers, ~15 line changes + 6 test files + docs) but a BREAKING change on three output surfaces whose downstream failure mode is silent (filters yield empty, not errors).
+1. Answered: agreed the state is inconsistent — grep shows length-dist metric values are snake_case while AP values/columns stay PascalCase (ap_Both mixes conventions).
+2. Answered: mechanically cheap (single source, ~15 lines + tests + docs) but BREAKING on three output surfaces with silent downstream failure (filters yield empty, not errors).
 3. Answered: flagged the same-class sibling TC value "OnTarget" and the timing argument (v0.4.0 is one day old; renames get costlier with every new consumer).
 
 ### change
@@ -598,3 +598,25 @@ Git:
 - `ec83436` chore(release): bump version to 0.5.0 (pushed, tag `v0.5.0`)
 
 Packages/Environments: None
+
+## explain qc-summary output schema at v0.3.0
+
+```
+level: low
+date: 2026-10-22
+```
+
+### description
+
+The user asked what `sam-tagger qc-summary` outputs in version 0.3.0.
+I read this as a description of the output artifact and its column schema
+at tag `v0.3.0`, distinct from the current v0.5.0 output.
+
+### result
+
+1. Answered: one Parquet at -o, 15 columns (seq_name, FL/TC/AP counts+pcts, ap_Both..ap_Neither, error counts+rate); one row per BAM-header reference, sorted.
+2. Answered: without --config only total_reads/fl/fl_pct populate; the PascalCase ap_* columns became snake_case only in v0.5.0.
+
+### change
+
+None
