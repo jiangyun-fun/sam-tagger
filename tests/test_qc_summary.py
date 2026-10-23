@@ -150,6 +150,25 @@ def test_qc_summary_no_config(tmp_path: Path) -> None:
     assert row["ap_both"] == 0
     assert row["mismatches"] == 0
     assert row["aligned_bases"] == 0
+
+
+def test_qc_summary_fl_counts_equal_and_diff_cigar(tmp_path: Path) -> None:
+    # cs-tagger bams carry =/X ops instead of M; full-length spans written
+    # that way must tally as FL (regression: fl was 0 for such bams —
+    # found in the wps_1012 refalign workflow, 668/984 full-span reads).
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28=\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r2\t0\tseq1\t1\t60\t14=2X12=\t*\t0\t0\t{'ACGT' * 7}\t{Q * 28}\n"
+        f"r3\t0\tseq1\t1\t60\t24=\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\n"
+    )
+    setup = setup_env(tmp_path, None, HDR_1_28, sam)
+    out = tmp_path / "qc.parquet"
+    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out))
+
+    row = _read_qc(out)["seq1"]
+    assert row["total_reads"] == 3
+    # 28= and 14=2X12= span the full 28 bp; the 24= read does not
+    assert row["fl"] == 2
     assert row["error_rate"] == 0.0
 
 
@@ -279,9 +298,7 @@ def test_qc_summary_length_dist(tmp_path: Path) -> None:
     dist_out = tmp_path / "dist.parquet"
     qc_out = tmp_path / "qc.parquet"
     run_qc_summary(
-        QcSummaryArgs(
-            input_bam=setup.input_bam, output=qc_out, length_dist_out=dist_out
-        )
+        QcSummaryArgs(input_bam=setup.input_bam, output=qc_out, length_dist_out=dist_out)
     )
 
     df = pl.read_parquet(dist_out)

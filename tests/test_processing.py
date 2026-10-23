@@ -5,6 +5,8 @@ from __future__ import annotations
 from sam_tagger.config import ApParams
 from sam_tagger.processing import (
     BAM_CDEL,
+    BAM_CDIFF,
+    BAM_CEQUAL,
     BAM_CINS,
     BAM_CMATCH,
     BAM_CREF_SKIP,
@@ -31,18 +33,41 @@ from sam_tagger.processing import (
 
 
 def test_calculate_soft_clip_lengths() -> None:
-    assert calculate_soft_clip_lengths([(BAM_CSOFT_CLIP, 5), (BAM_CMATCH, 20), (BAM_CSOFT_CLIP, 10)]) == (5, 10)
+    assert calculate_soft_clip_lengths(
+        [(BAM_CSOFT_CLIP, 5), (BAM_CMATCH, 20), (BAM_CSOFT_CLIP, 10)]
+    ) == (5, 10)
     assert calculate_soft_clip_lengths([(BAM_CSOFT_CLIP, 7), (BAM_CMATCH, 30)]) == (7, 0)
     assert calculate_soft_clip_lengths([(BAM_CMATCH, 40), (BAM_CSOFT_CLIP, 8)]) == (0, 8)
     assert calculate_soft_clip_lengths([(BAM_CMATCH, 50)]) == (0, 0)
     # Soft clip in middle doesn't count
-    assert calculate_soft_clip_lengths([(BAM_CMATCH, 10), (BAM_CSOFT_CLIP, 5), (BAM_CMATCH, 10)]) == (0, 0)
+    assert calculate_soft_clip_lengths(
+        [(BAM_CMATCH, 10), (BAM_CSOFT_CLIP, 5), (BAM_CMATCH, 10)]
+    ) == (0, 0)
     # Empty CIGAR
     assert calculate_soft_clip_lengths([]) == (0, 0)
 
 
 def test_sum_match_del_skip_cigar() -> None:
-    cigartuples = [(BAM_CMATCH, 10), (BAM_CINS, 5), (BAM_CDEL, 3), (BAM_CREF_SKIP, 2), (BAM_CSOFT_CLIP, 8)]
+    cigartuples = [
+        (BAM_CMATCH, 10),
+        (BAM_CINS, 5),
+        (BAM_CDEL, 3),
+        (BAM_CREF_SKIP, 2),
+        (BAM_CSOFT_CLIP, 8),
+    ]
+    assert sum_match_del_skip_cigar(cigartuples) == 15  # 10 + 3 + 2
+
+
+def test_sum_match_del_skip_cigar_equal_diff_ops() -> None:
+    # cs-tagger bams carry =/X instead of M; they are reference-consuming
+    # and must count toward the FL span (regression: fl was always 0).
+    cigartuples = [
+        (BAM_CEQUAL, 10),
+        (BAM_CINS, 5),
+        (BAM_CDIFF, 3),
+        (BAM_CDEL, 2),
+        (BAM_CSOFT_CLIP, 8),
+    ]
     assert sum_match_del_skip_cigar(cigartuples) == 15  # 10 + 3 + 2
 
 
@@ -58,12 +83,15 @@ def test_calculate_max_indel_lengths() -> None:
 def test_calculate_match_start_end() -> None:
     # 5S + 10M + 2I + 8M + 4S
     cigartuples = [
-        (BAM_CSOFT_CLIP, 5), (BAM_CMATCH, 10), (BAM_CINS, 2),
-        (BAM_CMATCH, 8), (BAM_CSOFT_CLIP, 4),
+        (BAM_CSOFT_CLIP, 5),
+        (BAM_CMATCH, 10),
+        (BAM_CINS, 2),
+        (BAM_CMATCH, 8),
+        (BAM_CSOFT_CLIP, 4),
     ]
     start, end = calculate_match_start_end(cigartuples)
-    assert start == 6   # after 5S, 1-based pos of first match base
-    assert end == 25    # 5S + 10M + 2I + 8M = 25
+    assert start == 6  # after 5S, 1-based pos of first match base
+    assert end == 25  # 5S + 10M + 2I + 8M = 25
     # No match ops
     assert calculate_match_start_end([(BAM_CSOFT_CLIP, 5)]) == (0, 0)
 
@@ -71,8 +99,11 @@ def test_calculate_match_start_end() -> None:
 def test_calculate_ref_consuming_length_before_end_soft() -> None:
     # 10M + 2D + 5I + 8M + 4S
     cigartuples = [
-        (BAM_CMATCH, 10), (BAM_CDEL, 2), (BAM_CINS, 5),
-        (BAM_CMATCH, 8), (BAM_CSOFT_CLIP, 4),
+        (BAM_CMATCH, 10),
+        (BAM_CDEL, 2),
+        (BAM_CINS, 5),
+        (BAM_CMATCH, 8),
+        (BAM_CSOFT_CLIP, 4),
     ]
     assert calculate_ref_consuming_length_before_end_soft(cigartuples) == 20  # 10+2+8
 
@@ -133,7 +164,7 @@ def test_contains_primer() -> None:
 
 def test_check_amplicon_primers() -> None:
     params = ApParams(
-        primer_start_end_pos=9,   # primer region ends at 0-based pos 9
+        primer_start_end_pos=9,  # primer region ends at 0-based pos 9
         primer_end_start_pos=90,  # end primer starts at 0-based pos 90
         primer_start_seq=b"ACGTACGT",
         primer_end_seq=b"TGCATGCA",
@@ -143,7 +174,10 @@ def test_check_amplicon_primers() -> None:
     # Read at pos 0 with 100M and matching seq → Both
     seq = b"ACGTACGTAC" + b"A" * 80 + b"TGCATGCA" + b"A" * 10
     result = check_amplicon_primers(
-        [(BAM_CMATCH, 100)], seq, 0, params,
+        [(BAM_CMATCH, 100)],
+        seq,
+        0,
+        params,
     )
     assert result == "both"
 

@@ -34,10 +34,16 @@ _READ_OPS = frozenset({BAM_CMATCH, BAM_CINS, BAM_CSOFT_CLIP, BAM_CEQUAL, BAM_CDI
 
 
 def sum_match_del_skip_cigar(cigartuples: list[tuple[int, int]]) -> int:
-    """Sum of M/D/N CIGAR operation lengths (reference-consuming for FL check)."""
+    """Sum of reference-consuming CIGAR op lengths (M/=/X/D/N — the FL check).
+
+    ``=``/``X`` must count: cs-tagged bams (e.g. cs-tagger output) carry them
+    instead of plain ``M`` — without them full-length reads never tally
+    (found 2026-10-22 in the wps_1012 refalign workflow: 668/984 full-span
+    records counted fl=0).
+    """
     total = 0
     for op, length in cigartuples:
-        if op in (BAM_CMATCH, BAM_CDEL, BAM_CREF_SKIP):
+        if op in (BAM_CMATCH, BAM_CEQUAL, BAM_CDIFF, BAM_CDEL, BAM_CREF_SKIP):
             total += length
     return total
 
