@@ -215,15 +215,37 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
     col = ErrorStatsCollector(params, paths)
     col.tally_from_parsed(parse_cs_tag(":20*ac+g-gt:76"), 0, "ref1", "r1")
     col.write_results()
-    for p in (paths.error, paths.mismatch, paths.insertion, paths.deletion,
-              paths.per_read, paths.per_base, paths.single_deletion):
+    for p in (
+        paths.error,
+        paths.mismatch,
+        paths.insertion,
+        paths.deletion,
+        paths.per_read,
+        paths.per_base,
+        paths.single_deletion,
+    ):
         assert p.exists()
     df = pl.read_parquet(paths.error)
     assert df.columns == [
-        "seq_name", "position", "insertion", "deletion", "smoothed_deletion", "mismatch",
-        "to_a", "to_c", "to_g", "to_t", "total",
-        "insertion_rate", "deletion_rate", "smoothed_deletion_rate", "mismatch_rate",
-        "to_a_rate", "to_c_rate", "to_g_rate", "to_t_rate",
+        "seq_name",
+        "position",
+        "insertion",
+        "deletion",
+        "smoothed_deletion",
+        "mismatch",
+        "to_a",
+        "to_c",
+        "to_g",
+        "to_t",
+        "total",
+        "insertion_rate",
+        "deletion_rate",
+        "smoothed_deletion_rate",
+        "mismatch_rate",
+        "to_a_rate",
+        "to_c_rate",
+        "to_g_rate",
+        "to_t_rate",
     ]
     # no get_ref_seq -> the whole smoothed column is null
     assert df["smoothed_deletion"].null_count() == df.height
@@ -237,7 +259,9 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
 
 
 def test_error_paths_from_prefix(tmp_path: Path) -> None:
-    args = ErrorStatsArgs(input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats")
+    args = ErrorStatsArgs(
+        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats"
+    )
     p = ErrorStatsOutputPaths.from_args(args)
     assert p.error == tmp_path / "stats.error.parquet"
     assert p.per_base == tmp_path / "stats.per_base.parquet"
@@ -245,18 +269,35 @@ def test_error_paths_from_prefix(tmp_path: Path) -> None:
 
 
 def test_error_paths_from_prefix_with_suffix(tmp_path: Path) -> None:
-    # prefix that already has a suffix keeps the stem
-    args = ErrorStatsArgs(input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats.tsv")
+    # literal prefix semantics: .{ext} is appended verbatim, nothing stripped
+    args = ErrorStatsArgs(
+        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats.tsv"
+    )
     p = ErrorStatsOutputPaths.from_args(args)
-    assert p.error == tmp_path / "stats.error.parquet"
+    assert p.error == tmp_path / "stats.tsv.error.parquet"
+
+
+def test_error_paths_from_prefix_dotted_stem(tmp_path: Path) -> None:
+    # dotted stems ({sample}.{ref}) keep every segment — the old Path.stem
+    # branch dropped the last one (Sample.Ref -> Sample.error.parquet)
+    args = ErrorStatsArgs(
+        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "Sample.Ref"
+    )
+    p = ErrorStatsOutputPaths.from_args(args)
+    assert p.error == tmp_path / "Sample.Ref.error.parquet"
+    assert p.per_base == tmp_path / "Sample.Ref.per_base.parquet"
 
 
 def test_error_paths_from_explicit(tmp_path: Path) -> None:
     args = ErrorStatsArgs(
-        input_bam=Path("in.bam"), config=Path("c.toml"),
-        error_out=tmp_path / "e.parquet", mismatch_out=tmp_path / "m.parquet",
-        insertion_out=tmp_path / "i.parquet", deletion_out=tmp_path / "d.parquet",
-        per_read_out=tmp_path / "pr.parquet", per_base_out=tmp_path / "pb.parquet",
+        input_bam=Path("in.bam"),
+        config=Path("c.toml"),
+        error_out=tmp_path / "e.parquet",
+        mismatch_out=tmp_path / "m.parquet",
+        insertion_out=tmp_path / "i.parquet",
+        deletion_out=tmp_path / "d.parquet",
+        per_read_out=tmp_path / "pr.parquet",
+        per_base_out=tmp_path / "pb.parquet",
         single_deletion_out=tmp_path / "sd.parquet",
     )
     p = ErrorStatsOutputPaths.from_args(args)
@@ -278,10 +319,20 @@ def test_error_paths_from_args_missing_raises(tmp_path: Path) -> None:
 def test_pileup_snp_no_fasta(tmp_path: Path) -> None:
     # Without a FASTA, ref base for matches is "."; SNP ref base comes from cs.
     col = PileupStatsCollector(
-        min_base_qual=20, ref_names=["ref1"], ref_lengths={"ref1": 100},
+        min_base_qual=20,
+        ref_names=["ref1"],
+        ref_lengths={"ref1": 100},
     )
     col.tally_from_record(
-        ":9*at:20", [(0, 30)], 0, (40,) * 30, "ref1", False, CS_REGEX, "r1", b"A" * 30,
+        ":9*at:20",
+        [(0, 30)],
+        0,
+        (40,) * 30,
+        "ref1",
+        False,
+        CS_REGEX,
+        "r1",
+        b"A" * 30,
     )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -302,7 +353,15 @@ def test_pileup_intervals_restrict_positions(tmp_path: Path) -> None:
     )
     for ref in ("ref1", "ref2"):
         col.tally_from_record(
-            ":30", [(0, 30)], 0, (40,) * 30, ref, False, CS_REGEX, ref, b"A" * 30,
+            ":30",
+            [(0, 30)],
+            0,
+            (40,) * 30,
+            ref,
+            False,
+            CS_REGEX,
+            ref,
+            b"A" * 30,
         )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -314,10 +373,20 @@ def test_pileup_intervals_restrict_positions(tmp_path: Path) -> None:
 def test_pileup_quality_filter(tmp_path: Path) -> None:
     # min_base_qual=40 drops the SNP base (qual 30)
     col = PileupStatsCollector(
-        min_base_qual=40, ref_names=["ref1"], ref_lengths={"ref1": 30},
+        min_base_qual=40,
+        ref_names=["ref1"],
+        ref_lengths={"ref1": 30},
     )
     col.tally_from_record(
-        ":9*at:20", [(0, 30)], 0, (30,) * 30, "ref1", False, CS_REGEX, "r1", b"A" * 30,
+        ":9*at:20",
+        [(0, 30)],
+        0,
+        (30,) * 30,
+        "ref1",
+        False,
+        CS_REGEX,
+        "r1",
+        b"A" * 30,
     )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -380,8 +449,9 @@ def test_smoothed_deletion_non_homopolymer(tmp_path: Path) -> None:
 
 def test_smoothed_deletion_region_clipping(tmp_path: Path) -> None:
     # Inner region [0, 5): the AAA run (0-based 3-5) loses its last position.
-    col = ErrorStatsCollector(_hp_params(inner_end=5), _err_paths(tmp_path),
-                              get_ref_seq=_hp_get(_HP_REF))
+    col = ErrorStatsCollector(
+        _hp_params(inner_end=5), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF)
+    )
     col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1")
     st = col._stats_by_ref["hp"]
     assert st.positional_errors[4].smoothed_deletion == pytest.approx(1 / 3)
@@ -446,7 +516,9 @@ def test_depth_total_clean_read_and_insertion(tmp_path: Path) -> None:
 def test_depth_total_not_region_gated(tmp_path: Path) -> None:
     # Region [3, 9): deletion outside the region is not counted, but coverage is.
     paths = _err_paths(tmp_path)
-    col2 = ErrorStatsCollector({"hp": ErrorParams(seq_len=9, inner_region_start=3, inner_region_end=9)}, paths)
+    col2 = ErrorStatsCollector(
+        {"hp": ErrorParams(seq_len=9, inner_region_start=3, inner_region_end=9)}, paths
+    )
     col2.tally_from_parsed(parse_cs_tag(":2-a:6"), 0, "hp", "r1")
     col2.write_results()
     df = _read_error_parquet(paths)

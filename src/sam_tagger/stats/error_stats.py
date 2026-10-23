@@ -84,10 +84,11 @@ class ErrorStatsOutputPaths:
             prefix = args.prefix
 
             def _p(ext: str) -> Path:
-                if prefix.suffix:
-                    stem = prefix.stem
-                    return prefix.with_name(f"{stem}.{ext}")
-                return Path(str(prefix) + f".{ext}")
+                # Literal prefix semantics: append .{ext} verbatim. Dotted
+                # stems (Sample.Ref) keep every segment; the old Path.stem
+                # branch silently dropped the last dotted segment
+                # (Sample.Ref -> Sample.error.parquet; found 2026-10-22).
+                return Path(f"{prefix}.{ext}")
 
             return cls(
                 error=_p("error.parquet"),
@@ -395,11 +396,14 @@ class ErrorStatsCollector:
         # null = smoothing unavailable (no --fasta); with a reference, eventless
         # positions read 0.0 like the integer columns.
         if self._get_ref_seq is None:
+
             def smoothed(v: float | None) -> float | None:
                 return v
         else:
+
             def smoothed(v: float | None) -> float | None:
                 return v if v is not None else 0.0
+
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
             seq_len = self._error_params_map[seq_name].seq_len
