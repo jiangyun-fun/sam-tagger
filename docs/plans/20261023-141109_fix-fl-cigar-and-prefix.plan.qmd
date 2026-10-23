@@ -1,0 +1,48 @@
+---
+title: "Plan: fix FL =/X CIGAR bug and error-stats prefix mangling (v0.5.1)"
+author: "Yun Jiang"
+date: 2026-10-23
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Objective
+
+Fix the two defects found by the wps_1012 refalign workflow (2026-10-22) and
+cut a patch release, v0.5.1.
+
+# Steps as executed
+
+1. Fix 1: `sum_match_del_skip_cigar` now sums M/=/X/D/N (`processing.py`);
+   regression unit test + a bam-level qc-summary test with `28=`/`14=2X12=`.
+2. Fix 2: `ErrorStatsOutputPaths.from_args` appends `.{ext}` verbatim
+   (`stats/error_stats.py`); dotted-stem regression added, the old
+   suffix-stripping test rewritten to literal semantics.
+3. Suite: 153 passed (was 150); ruff check clean. The blanket
+   `pixi run format` swept 11 out-of-scope files (repo not format-clean under
+   the current ruff) — reverted; the five in-scope files stay formatted.
+4. Real-data verification: the fixed CLI on the gs9973 sample-1 cs bam
+   reports fl=668/984 (v0.5.0: fl=0) — the exact full-span count from the
+   original diagnosis.
+5. Release: bump 0.5.0 → 0.5.1 in pyproject.toml, pixi.toml,
+   `src/sam_tagger/__init__.py`; `sam-tagger --version` verified; two fix
+   commits + docs commit + release commit; annotated tag `v0.5.1` pushed
+   with main; the workflow auto-creates the release; `gh release edit`
+   installs curated notes (incl. the prefix behavior change).
+
+# Verification status
+
+1. 153 tests green, lint clean — MET.
+2. fl=668 on the production bam — MET.
+3. `sam-tagger --version` → 0.5.1 — MET.
+4. Workflow run green with wheel + sdist attached and curated notes —
+   recorded in the report.

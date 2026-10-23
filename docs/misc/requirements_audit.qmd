@@ -620,3 +620,27 @@ at tag `v0.3.0`, distinct from the current v0.5.0 output.
 ### change
 
 None
+
+## fix FL =/X CIGAR bug and error-stats prefix mangling, release v0.5.1
+
+```
+level: high
+date: 2026-10-23
+```
+
+### description
+
+Fix the two defects diagnosed in the wps_1012 refalign workflow: FL never counts =/X CIGAR ops (fl=0 on cs-tagger bams; 668/984 full-span reads counted 0), and error-stats --prefix drops the last dotted segment of dotted stems.
+
+### result
+
+1. Implemented the FL fix (sum M/=/X/D/N in sum_match_del_skip_cigar) with unit + bam-level regression tests.
+2. Implemented literal --prefix semantics with a dotted-stem regression; rewrote the old suffix-stripping test; behavior change noted.
+3. Verified on the production gs9973 cs bam: fl 0 -> 668 of 984; suite 150 -> 153 green, ruff clean.
+4. Released v0.5.1: three-file bump, annotated tag pushed with main, workflow-built assets, curated notes via gh release edit.
+
+### change
+
+Files: updated src/sam_tagger/processing.py, src/sam_tagger/stats/error_stats.py, tests/{test_processing,test_stats,test_qc_summary}.py, pyproject.toml, pixi.toml, src/sam_tagger/__init__.py; created docs/plans/20261023-141109 + 20261023-141920 pair; updated docs/misc/{requirements_audit,next_and_recommendation}.qmd.
+Packages: none. Environments: none (dev env used as-is).
+Git: two fix commits + docs commit + release commit on main; tag v0.5.1 pushed.

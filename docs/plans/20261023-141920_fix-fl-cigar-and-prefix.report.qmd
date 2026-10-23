@@ -1,0 +1,385 @@
+---
+title: "Report: fix FL =/X CIGAR bug and error-stats prefix mangling (v0.5.1)"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+## feature
+
+None
+
+## fix
+
+### FL now counts =/X CIGAR operations
+
+```
+level: high
+```
+
+#### reason
+
+The regression suite covers the helper with =/X ops and a bam-level qc-summary test, and the fixed CLI reports fl=668/984 on the real workflow bam that exposed the defect.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. `sum_match_del_skip_cigar` now sums M/=/X/D/N (all reference-consuming ops); previously `=`/`X` were omitted.
+2. cs-tagged bams (cs-tagger output) carry `=`/`X` instead of `M`, so full-length reads never tallied in qc-summary or annotate FL stats.
+3. Verified on the wps_1012 gs9973 sample-1 cs bam: fl 0 → 668 of 984 reads (the exact full-span count pysam reported at diagnosis).
+
+#### before
+
+Any bam with `=`/`X` CIGARs reported fl=0 and fl_pct=0.0 in qc-summary and the annotate FL stats.
+
+#### after
+
+Full-length spans written as `=`/`X` tally identically to `M`.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- `pixi run -e dev sam-tagger qc-summary -i .../T22610201601-GS9973-1...circular.cs.bam --config /tmp/qc_cfg.csv` → `total_reads: 984 fl: 668 fl_pct: 0.6789` (was fl=0 at v0.5.0).
+- New tests: `test_sum_match_del_skip_cigar_equal_diff_ops`, `test_qc_summary_fl_counts_equal_and_diff_cigar` (28= and 14=2X12= tally; 24= does not).
+
+:::
+
+### error-stats --prefix no longer drops the last dotted segment
+
+```
+level: high
+```
+
+#### reason
+
+Path resolution is now literal and unit-tested for dotted stems; the previous behavior is documented as replaced.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `ErrorStatsOutputPaths.from_args` appends `.{ext}` to the prefix verbatim.
+2. Previously a dotted prefix (`Sample.Ref`) lost its last segment (`Sample.error.parquet`) via `Path.stem`.
+
+#### before
+
+`--prefix dir/Sample.Ref` produced `dir/Sample.error.parquet` — silent output-name corruption for `{sample}.{ref}` pipelines.
+
+#### after
+
+`--prefix dir/Sample.Ref` produces `dir/Sample.Ref.error.parquet`. Behavior change: a suffix-like tail is no longer stripped, so `--prefix stats.tsv` now yields `stats.tsv.error.parquet` (was `stats.error.parquet`); noted in the release notes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- New: `test_error_paths_from_prefix_dotted_stem`; updated: `test_error_paths_from_prefix_with_suffix` (literal semantics).
+- Suite: 153 passed (150 before), `ruff check` clean.
+
+:::
+
+## limitation
+
+None
+
+## caveat
+
+### the prefix change is observable behavior, not a pure fix
+
+```
+level: medium
+```
+
+#### reason
+
+Callers that relied on suffix stripping see different output names after the upgrade; the release notes carry the one-line migration.
+
+#### description
+
+```
+type: [text]
+```
+
+Pass a prefix WITHOUT an extension-like tail unless the tail is meant to be part of every output name.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## assumption
+
+None
+
+## conclusion
+
+### both wps_1012-diagnosed defects are closed at the source level
+
+```
+level: high
+```
+
+#### reason
+
+Both fixes are covered by regression tests and one is verified on the production bam that exposed it.
+
+#### description
+
+```
+type: [text]
+```
+
+v0.5.1 ships the FL `=`/`X` fix and literal prefix semantics; the wps_1012 workarounds (explicit `--*-out` flags in S37_1) can be simplified once the workflow envs move past 0.5.1.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Diagnosis trail: wps_1012 `docs/plans/20261022-165602_qc-summary-and-on-target.report.qmd` (668/984 replication); fixes here at `processing.py` and `stats/error_stats.py`.
+
+:::
+
+## recommendation
+
+### L: on future releases, expect the release workflow to auto-create the GitHub release on tag push — use `gh release edit` for curated notes instead of `create`
+
+```
+level: low
+```
+
+#### reason
+
+Carried over from the v0.5.0 release; unchanged.
+
+#### description
+
+```
+type: [text]
+```
+
+Same procedure as v0.5.0/v0.5.1.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: wps_1012 should adopt v0.5.1 (env pin) and simplify the S37_1 explicit-flags workaround
+
+```
+level: medium
+```
+
+#### reason
+
+The workarounds exist only because of these two defects.
+
+#### description
+
+```
+type: [text]
+```
+
+After the release artifacts build, bump the workflow env pin and drop the seven explicit output flags in favor of `--prefix`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### the suite grew by three tests, all targeted at the two defects
+
+```
+level: high
+```
+
+#### reason
+
+Counts come from the runs this session.
+
+#### description
+
+```
+type: [table]
+```
+
+| Suite moment | Tests | Result |
+|---|---|---|
+| before | 150 | pass |
+| after | 153 | pass |
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`pixi run -e dev test` → `153 passed in 4.86s`; `pixi run -e dev lint` → clean.
+
+:::
+
+## process
+
+### verified the FL fix on the production bam before releasing
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. We ran the fixed CLI against the same gs9973 cs bam used for the original diagnosis.
+2. fl=668 matched the pysam full-span count exactly, closing the loop from defect to fix on real data.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`total_reads: 984 fl: 668 fl_pct: 0.6789` (v0.5.0 gave fl=0).
+
+:::
+
+### the house formatter swept eleven out-of-scope files
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. `pixi run format` reformatted 15 files; only five were in scope.
+2. The repo is not format-clean under the current ruff, so a blanket format run rewrites unrelated history.
+3. We reverted the eleven out-of-scope files before committing; the better action is `ruff format <changed-files>` only.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`git status --short` after the revert shows exactly the five in-scope files plus the new plan.
+
+:::
+
+## change
+
+### files and commits for v0.5.1
+
+```
+level: high
+```
+
+#### reason
+
+The list mirrors the working tree at commit time.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb | Path |
+|---|---|
+| updated | `src/sam_tagger/processing.py` (FL ops) |
+| updated | `src/sam_tagger/stats/error_stats.py` (literal prefix) |
+| updated | `tests/test_processing.py`, `tests/test_stats.py`, `tests/test_qc_summary.py` |
+| updated | `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py` (0.5.1) |
+| created | `docs/plans/20261023-141109_fix-fl-cigar-and-prefix.plan.qmd` + this report |
+
+Git: two fix commits, a docs commit, and the release commit with annotated tag `v0.5.1` pushed with main.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`git log --oneline` at release time lists the four commits on top of `b429fb2`.
+
+:::
+
+## other
+
+None

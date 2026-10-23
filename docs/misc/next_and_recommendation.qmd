@@ -5,8 +5,9 @@ author: "Yun Jiang"
 
 ## next
 
-None
+1. M: wps_1012 adopts v0.5.1 (env pin) and simplifies the S37_1 explicit-flags workaround to `--prefix`.
 
 ## recommendation
 
-1. L: on future releases, expect the release workflow to auto-create the GitHub release on tag push — use `gh release edit` for curated notes instead of `create`
+1. L: on future releases, expect the release workflow to auto-create the GitHub release on tag push — use `gh release edit` for curated notes instead of `create`.
+2. L: run `ruff format` on changed files only — the repo is not format-clean under the current ruff, and blanket runs rewrite unrelated files.
