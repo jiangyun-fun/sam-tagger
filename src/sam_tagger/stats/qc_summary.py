@@ -39,14 +39,15 @@ class _QcCounts:
 # class, so an explicit `dict[str, pl.DataType]` hint would not accept it.
 _SCHEMA = {
     "seq_name": pl.Utf8,
+    "ref_len": pl.UInt32,
     "total_reads": pl.UInt64,
     "forward_reads": pl.UInt64,
     "reverse_reads": pl.UInt64,
-    "forward_pct": pl.Float64,
+    "forward_rate": pl.Float64,
     "fl": pl.UInt64,
-    "fl_pct": pl.Float64,
+    "fl_rate": pl.Float64,
     "on_target": pl.UInt64,
-    "on_target_pct": pl.Float64,
+    "on_target_rate": pl.Float64,
     "ap_both": pl.UInt64,
     "ap_start_only": pl.UInt64,
     "ap_end_only": pl.UInt64,
@@ -62,9 +63,10 @@ _SCHEMA = {
 class QcSummaryCollector:
     """Accumulates per-reference QC counts; writes the joined summary Parquet."""
 
-    def __init__(self, ref_names: list[str]) -> None:
+    def __init__(self, ref_lengths: dict[str, int]) -> None:
         # Every header contig gets a row, even with zero reads (FL is the denominator).
-        self._counts: dict[str, _QcCounts] = {name: _QcCounts() for name in ref_names}
+        self._counts: dict[str, _QcCounts] = {name: _QcCounts() for name in ref_lengths}
+        self._ref_lengths = ref_lengths
 
     def tally_total(self, ref: str) -> None:
         self._counts[ref].total += 1
@@ -114,14 +116,15 @@ class QcSummaryCollector:
             error_events = mismatches + insertions + deletions
 
             columns["seq_name"].append(seq_name)
+            columns["ref_len"].append(self._ref_lengths[seq_name])
             columns["total_reads"].append(total)
             columns["forward_reads"].append(c.forward)
             columns["reverse_reads"].append(c.reverse)
-            columns["forward_pct"].append((c.forward / total) if total else 0.0)
+            columns["forward_rate"].append((c.forward / total) if total else 0.0)
             columns["fl"].append(c.fl)
-            columns["fl_pct"].append((c.fl / total) if total else 0.0)
+            columns["fl_rate"].append((c.fl / total) if total else 0.0)
             columns["on_target"].append(c.on_target)
-            columns["on_target_pct"].append((c.on_target / total) if total else 0.0)
+            columns["on_target_rate"].append((c.on_target / total) if total else 0.0)
             columns["ap_both"].append(c.ap_both)
             columns["ap_start_only"].append(c.ap_start_only)
             columns["ap_end_only"].append(c.ap_end_only)

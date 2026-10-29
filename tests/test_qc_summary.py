@@ -63,12 +63,17 @@ def test_qc_summary_multi_ref(tmp_path: Path) -> None:
     qc = _read_qc(out)
     assert set(qc) == {"seq1", "seq2", "seq3"}  # every header contig, incl. zero-read seq3
 
+    # ref_len mirrors the BAM header LN for every reference, zero-read included
+    assert qc["seq1"]["ref_len"] == 28
+    assert qc["seq2"]["ref_len"] == 26
+    assert qc["seq3"]["ref_len"] == 30
+
     # seq1: 2 reads, 1 full-length (r1), 1 on-target (r1), 1 mismatch (r2), aligned 28+24.
     assert qc["seq1"]["total_reads"] == 2
     assert qc["seq1"]["fl"] == 1
-    assert qc["seq1"]["fl_pct"] == pytest.approx(0.5)
+    assert qc["seq1"]["fl_rate"] == pytest.approx(0.5)
     assert qc["seq1"]["on_target"] == 1
-    assert qc["seq1"]["on_target_pct"] == pytest.approx(0.5)
+    assert qc["seq1"]["on_target_rate"] == pytest.approx(0.5)
     assert qc["seq1"]["mismatches"] == 1
     assert qc["seq1"]["insertions"] == 0
     assert qc["seq1"]["deletions"] == 0
@@ -80,14 +85,14 @@ def test_qc_summary_multi_ref(tmp_path: Path) -> None:
     # seq2: 1 perfect read.
     assert qc["seq2"]["total_reads"] == 1
     assert qc["seq2"]["fl"] == 1
-    assert qc["seq2"]["fl_pct"] == pytest.approx(1.0)
+    assert qc["seq2"]["fl_rate"] == pytest.approx(1.0)
     assert qc["seq2"]["on_target"] == 1
     assert qc["seq2"]["aligned_bases"] == 26
     assert qc["seq2"]["error_rate"] == pytest.approx(0.0)
 
     # seq3: zero reads -> row of zeros, no division-by-zero.
     assert qc["seq3"]["total_reads"] == 0
-    assert qc["seq3"]["fl_pct"] == 0.0
+    assert qc["seq3"]["fl_rate"] == 0.0
     assert qc["seq3"]["error_rate"] == 0.0
 
 
@@ -144,7 +149,7 @@ def test_qc_summary_no_config(tmp_path: Path) -> None:
     row = _read_qc(out)["seq1"]
     assert row["total_reads"] == 2
     assert row["fl"] == 1  # only the 28M read
-    assert row["fl_pct"] == pytest.approx(0.5)
+    assert row["fl_rate"] == pytest.approx(0.5)
     # cs-dependent / config-dependent columns all zero
     assert row["on_target"] == 0
     assert row["ap_both"] == 0
@@ -225,8 +230,9 @@ def test_qc_summary_empty_bam(tmp_path: Path) -> None:
     assert df.height == 1
     row = df.row(0, named=True)
     assert row["seq_name"] == "seq1"
+    assert row["ref_len"] == 28
     assert row["total_reads"] == 0
-    assert row["fl_pct"] == 0.0
+    assert row["fl_rate"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -252,12 +258,12 @@ def test_qc_summary_strand_columns(tmp_path: Path) -> None:
     assert row["total_reads"] == 4  # unmapped r5 excluded
     assert row["forward_reads"] == 2  # r1 + secondary r3
     assert row["reverse_reads"] == 2  # r2 + supplementary r4
-    assert row["forward_pct"] == pytest.approx(0.5)
+    assert row["forward_rate"] == pytest.approx(0.5)
     # identity holds row-wise
     assert row["forward_reads"] + row["reverse_reads"] == row["total_reads"]
     # zero-read ref: zeros, no division error
     assert qc["seq2"]["forward_reads"] == qc["seq2"]["reverse_reads"] == 0
-    assert qc["seq2"]["forward_pct"] == 0.0
+    assert qc["seq2"]["forward_rate"] == 0.0
 
 
 def test_qc_summary_strand_all_reverse(tmp_path: Path) -> None:
@@ -272,7 +278,7 @@ def test_qc_summary_strand_all_reverse(tmp_path: Path) -> None:
     row = _read_qc(out)["seq1"]
     assert row["forward_reads"] == 0
     assert row["reverse_reads"] == 2
-    assert row["forward_pct"] == 0.0
+    assert row["forward_rate"] == 0.0
 
 
 # ---------------------------------------------------------------------------

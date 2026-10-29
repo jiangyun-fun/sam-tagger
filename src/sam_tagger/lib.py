@@ -3,7 +3,7 @@
 Four independent entry points, each a focused single pass over the BAM:
 
 - ``run_annotate``    — BAM -> tagged BAM (+ optional FASTQ + tag stats). Writes BAM.
-- ``run_error_stats`` — BAM -> 7 cs-tag error Parquet files. Read-only.
+- ``run_error_stats`` — BAM -> 8 cs-tag error Parquet files. Read-only.
 - ``run_pileup``      — BAM -> pileup Parquet. Read-only.
 - ``run_qc_summary``  — BAM -> one per-reference QC summary Parquet. Read-only.
 
@@ -395,7 +395,7 @@ def _annotate_loop(
 
 
 def run_error_stats(args: ErrorStatsArgs) -> None:
-    """Single pass: tally cs-tag errors and write 7 Parquet files (read-only)."""
+    """Single pass: tally cs-tag errors and write 8 Parquet files (read-only)."""
     bam_reader = _open_reader(args.input_bam)
     try:
         header_refs = _header_refs(bam_reader)
@@ -438,7 +438,7 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
     finally:
         bam_reader.close()
 
-    logger.info("error-stats complete. Wrote 7 Parquet files (prefix/paths as given).")
+    logger.info("error-stats complete. Wrote 8 Parquet files (prefix/paths as given).")
 
 
 # ===========================================================================
@@ -517,16 +517,15 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
 
     Joins FL (always, header length), TC + per-base error (need cs + config), and
     AP (need config) into one row per BAM-header reference. With no ``--config``,
-    only ``total_reads``/``fl``/``fl_pct`` are populated.
+    only ``total_reads``/``fl``/``fl_rate`` are populated.
     """
     bam_reader = _open_reader(args.input_bam)
     try:
         header_refs = _header_refs(bam_reader)
         ref_lengths = dict(header_refs)
-        ref_names = [name for name, _ in header_refs]
         cfg = load_config(args.config, ref_lengths)
         error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
-        qc = QcSummaryCollector(ref_names)
+        qc = QcSummaryCollector(ref_lengths)
         length_dist = (
             LengthDistCollector(args.length_dist_out) if args.length_dist_out is not None else None
         )
