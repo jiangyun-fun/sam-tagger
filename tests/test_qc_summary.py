@@ -68,12 +68,21 @@ def test_qc_summary_multi_ref(tmp_path: Path) -> None:
     assert qc["seq2"]["ref_len"] == 26
     assert qc["seq3"]["ref_len"] == 30
 
+    # effective_len = ref_len - tc primers (seq1: 28-8-8, seq2: 26-5-5);
+    # seq3 has no config row -> null, and efficiency follows
+    assert qc["seq1"]["effective_len"] == 12
+    assert qc["seq2"]["effective_len"] == 16
+    assert qc["seq3"]["effective_len"] is None
+
     # seq1: 2 reads, 1 full-length (r1), 1 on-target (r1), 1 mismatch (r2), aligned 28+24.
     assert qc["seq1"]["total_reads"] == 2
     assert qc["seq1"]["fl"] == 1
     assert qc["seq1"]["fl_rate"] == pytest.approx(0.5)
     assert qc["seq1"]["on_target"] == 1
     assert qc["seq1"]["on_target_rate"] == pytest.approx(0.5)
+    assert qc["seq1"]["efficiency"] == pytest.approx(0.5 ** (1 / 12))
+    assert qc["seq2"]["efficiency"] == pytest.approx(1.0 ** (1 / 16))
+    assert qc["seq3"]["efficiency"] is None
     assert qc["seq1"]["mismatches"] == 1
     assert qc["seq1"]["insertions"] == 0
     assert qc["seq1"]["deletions"] == 0
@@ -150,11 +159,13 @@ def test_qc_summary_no_config(tmp_path: Path) -> None:
     assert row["total_reads"] == 2
     assert row["fl"] == 1  # only the 28M read
     assert row["fl_rate"] == pytest.approx(0.5)
-    # cs-dependent / config-dependent columns all zero
+    # cs-dependent / config-dependent columns all zero / null
     assert row["on_target"] == 0
     assert row["ap_both"] == 0
     assert row["mismatches"] == 0
     assert row["aligned_bases"] == 0
+    assert row["effective_len"] is None  # no config -> not computable
+    assert row["efficiency"] is None
 
 
 def test_qc_summary_fl_counts_equal_and_diff_cigar(tmp_path: Path) -> None:

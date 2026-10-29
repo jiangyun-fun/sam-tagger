@@ -249,12 +249,17 @@ sam-tagger qc-summary INPUT-BAM OUTPUT [ARGS]
 
 Read-only. One Parquet row per BAM-header reference, joining FL, TC, AP and
 per-base error counts/rate into a single digest. Columns: `seq_name, ref_len,
-total_reads, forward_reads, reverse_reads, forward_rate, fl, fl_rate, on_target,
-on_target_rate, ap_both, ap_start_only, ap_end_only, ap_neither, mismatches,
-insertions, deletions, aligned_bases, error_rate`.
+effective_len, total_reads, forward_reads, reverse_reads, forward_rate, fl,
+fl_rate, on_target, on_target_rate, efficiency, ap_both, ap_start_only,
+ap_end_only, ap_neither, mismatches, insertions, deletions, aligned_bases,
+error_rate`.
 Zero-read references appear with zeros. `ref_len` is the BAM-header `LN`
 length. All `*_rate` columns are fractions in `[0, 1]` (renamed from `*_pct`
 in v0.6.0 — the values were already fractions; only the name changed).
+`effective_len` = `ref_len` − `tc_primer_start_len` − `tc_primer_end_len`
+(null when the reference has no TC config row). `efficiency` =
+`on_target_rate^(1/effective_len)` — the per-base on-target rate implied by
+the whole-amplicon rate (null when `effective_len` is null or ≤ 0).
 
 - **With `--config`** — all columns populate (TC/AP/error need primer params).
 - **Without `--config`** — only `total_reads`, `forward_reads`, `reverse_reads`,

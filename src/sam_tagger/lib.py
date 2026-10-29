@@ -525,7 +525,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
         ref_lengths = dict(header_refs)
         cfg = load_config(args.config, ref_lengths)
         error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
-        qc = QcSummaryCollector(ref_lengths)
+        qc = QcSummaryCollector(ref_lengths, tc_params=cfg.tc)
         length_dist = (
             LengthDistCollector(args.length_dist_out) if args.length_dist_out is not None else None
         )

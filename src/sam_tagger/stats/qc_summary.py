@@ -18,6 +18,7 @@ import polars as pl
 from sam_tagger.parquet_writer import write_df_to_parquet
 
 if TYPE_CHECKING:
+    from sam_tagger.config import TcParams
     from sam_tagger.stats.error_stats import ErrorStatsCollector
 
 
@@ -40,6 +41,7 @@ class _QcCounts:
 _SCHEMA = {
     "seq_name": pl.Utf8,
     "ref_len": pl.UInt32,
+    "effective_len": pl.Int64,
     "total_reads": pl.UInt64,
     "forward_reads": pl.UInt64,
     "reverse_reads": pl.UInt64,
@@ -48,6 +50,7 @@ _SCHEMA = {
     "fl_rate": pl.Float64,
     "on_target": pl.UInt64,
     "on_target_rate": pl.Float64,
+    "efficiency": pl.Float64,
     "ap_both": pl.UInt64,
     "ap_start_only": pl.UInt64,
     "ap_end_only": pl.UInt64,
@@ -63,10 +66,15 @@ _SCHEMA = {
 class QcSummaryCollector:
     """Accumulates per-reference QC counts; writes the joined summary Parquet."""
 
-    def __init__(self, ref_lengths: dict[str, int]) -> None:
+    def __init__(
+        self,
+        ref_lengths: dict[str, int],
+        tc_params: dict[str, TcParams] | None = None,
+    ) -> None:
         # Every header contig gets a row, even with zero reads (FL is the denominator).
         self._counts: dict[str, _QcCounts] = {name: _QcCounts() for name in ref_lengths}
         self._ref_lengths = ref_lengths
+        self._tc_params = tc_params
 
     def tally_total(self, ref: str) -> None:
         self._counts[ref].total += 1
@@ -108,6 +116,23 @@ class QcSummaryCollector:
             c = self._counts[seq_name]
             total = c.total
 
+            # effective_len = ref_len - tc primers; null without tc params for
+            # this reference. efficiency = on_target_rate**(1/effective_len)
+            # (the per-base on-target rate); null when effective_len is not a
+            # positive integer.
+            tc = self._tc_params.get(seq_name) if self._tc_params is not None else None
+            effective_len = (
+                self._ref_lengths[seq_name] - tc.primer_start_len - tc.primer_end_len
+                if tc is not None
+                else None
+            )
+            on_target_rate = (c.on_target / total) if total else 0.0
+            efficiency = (
+                on_target_rate ** (1.0 / effective_len)
+                if effective_len is not None and effective_len > 0
+                else None
+            )
+
             aligned_bases = mismatches = insertions = deletions = 0
             if error_collector is not None:
                 counts = error_collector.per_base_counts(seq_name)
@@ -117,6 +142,7 @@ class QcSummaryCollector:
 
             columns["seq_name"].append(seq_name)
             columns["ref_len"].append(self._ref_lengths[seq_name])
+            columns["effective_len"].append(effective_len)
             columns["total_reads"].append(total)
             columns["forward_reads"].append(c.forward)
             columns["reverse_reads"].append(c.reverse)
@@ -124,7 +150,8 @@ class QcSummaryCollector:
             columns["fl"].append(c.fl)
             columns["fl_rate"].append((c.fl / total) if total else 0.0)
             columns["on_target"].append(c.on_target)
-            columns["on_target_rate"].append((c.on_target / total) if total else 0.0)
+            columns["on_target_rate"].append(on_target_rate)
+            columns["efficiency"].append(efficiency)
             columns["ap_both"].append(c.ap_both)
             columns["ap_start_only"].append(c.ap_start_only)
             columns["ap_end_only"].append(c.ap_end_only)
