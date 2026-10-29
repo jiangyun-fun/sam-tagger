@@ -223,7 +223,23 @@ class ErrorStatsArgs:
 
 @app.command
 def error_stats(args: Annotated[ErrorStatsArgs, Parameter(name="")]) -> None:
-    """Generate 8 cs-tag error-statistics Parquet files (read-only, no BAM output)."""
+    """Generate 8 cs-tag error-statistics Parquet files (read-only, no BAM output).
+
+    One row per position/reference as noted; `{p}` = the --prefix. Each
+    `*_rate` column is `count / total` (0.0 on zero depth).
+
+    | Output (`{p}.*.parquet`) | Columns                                                        |
+    |--------------------------|----------------------------------------------------------------|
+    | `error`                  | seq_name, position, insertion, deletion, smoothed_deletion,    |
+    |                          | mismatch, to_a, to_c, to_g, to_t, total, + one rate per count  |
+    | `mismatch`               | seq_name, ref_base, A, T, C, G                                 |
+    | `insertion`              | seq_name, type (inserted base), count                          |
+    | `deletion`               | seq_name, type (deleted base), count                           |
+    | `per_read`               | seq_name, type (total/insertion/deletion/substitution), count  |
+    | `per_base`               | seq_name, type (total/insertion/deletion/substitution), count  |
+    | `single_deletion`        | seq_name, position, deletion, single_deletion                  |
+    | `ref_summary`            | seq_name, max_min_rate (min/max depth), max_error_rate         |
+    """
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_error_stats
 
@@ -243,7 +259,7 @@ class PileupArgs:
     output: Annotated[
         Path,
         Parameter(
-            alias="-o", help="Output pileup Parquet (seq_name,pos,ref,alt,dp,adf,adr,ad,af)."
+            alias="-o", help="Output pileup Parquet (columns listed in the command help)."
         ),
     ]
     fasta: Annotated[
@@ -263,7 +279,10 @@ class PileupArgs:
 
 @app.command
 def pileup(args: Annotated[PileupArgs, Parameter(name="")]) -> None:
-    """Generate bcftools-mpileup-like per-position statistics (read-only)."""
+    """Generate bcftools-mpileup-like per-position statistics (read-only).
+
+    Output columns: seq_name, pos, ref, alt, dp, adf, adr, ad, af.
+    """
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_pileup
 
@@ -306,7 +325,17 @@ class QcSummaryArgs:
 
 @app.command
 def qc_summary(args: Annotated[QcSummaryArgs, Parameter(name="")]) -> None:
-    """Emit one Parquet row per reference: FL, TC, AP, and per-base error rate (read-only)."""
+    """Emit one Parquet row per reference: FL, TC, AP, and per-base error rate (read-only).
+
+    Output columns: seq_name, ref_len, effective_len, total_reads,
+    forward_reads, reverse_reads, forward_rate, fl, fl_rate, on_target,
+    on_target_rate, efficiency, ap_both, ap_start_only, ap_end_only,
+    ap_neither, mismatches, insertions, deletions, aligned_bases, error_rate.
+    Every *_rate is a fraction in [0, 1]. effective_len = ref_len -
+    tc_primer_start_len - tc_primer_end_len (null without TC config);
+    efficiency = on_target_rate ** (1/effective_len). Without --config,
+    only the read-count, strand, and FL columns are computed.
+    """
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_qc_summary
 
