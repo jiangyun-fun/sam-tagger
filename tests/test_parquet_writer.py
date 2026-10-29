@@ -187,23 +187,28 @@ def test_per_ref_counts_stats_to_dataframe() -> None:
 
 def test_mismatch_long_stats_to_dataframe() -> None:
     stats = MismatchLongStats()
-    stats.add("ref1", "A", "C", 3, 0.75)
-    stats.add("ref1", "G", "T", 1, 0.25)
+    stats.add("ref1", "A", "C", 3, 1, 0.75, 0.3)
+    stats.add("ref1", "G", "T", 0, 1, 0.25, 0.1)
+    stats.add("ref1", "A", "A", 40, 20, None, 0.6)  # diagonal: rate null
     df = stats.to_dataframe()
-    assert df.columns == ["seq_name", "ref", "alt", "count", "rate"]
-    assert df.height == 2
+    assert df.columns == ["seq_name", "ref", "alt", "adf", "adr", "rate", "norm_rate"]
+    assert df.height == 3
     assert df["ref"][0] == "A" and df["alt"][0] == "C"
+    assert (df["adf"][0], df["adr"][0]) == (3, 1)
     assert df["rate"][1] == pytest.approx(0.25)
+    assert df["norm_rate"][2] == pytest.approx(0.6)
+    assert df["rate"][2] is None
 
 
 def test_mismatch_long_stats_write_and_read_parquet(tmp_path: Path) -> None:
     path = tmp_path / "test_mismatch.parquet"
     stats = MismatchLongStats()
-    stats.add("ref1", "G", "A", 7, 0.7)
+    stats.add("ref1", "G", "A", 5, 2, 0.7, 0.07)
     stats.write_parquet(path)
     df = pl.read_parquet(path)
-    assert df["count"][0] == 7
+    assert (df["adf"][0], df["adr"][0]) == (5, 2)
     assert df["rate"][0] == pytest.approx(0.7)
+    assert df["norm_rate"][0] == pytest.approx(0.07)
 
 
 def test_write_df_to_parquet_creates_valid_file(tmp_path: Path) -> None:

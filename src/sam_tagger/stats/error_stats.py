@@ -61,8 +61,19 @@ class _PerRefErrorStats:
     # Difference array for per-position depth (samtools depth -J semantics):
     # `:`/`*`/`-` cover their span; `+` covers nothing. Not region-gated.
     depth_diff: dict[int, int] = field(default_factory=dict)
-    # 5x5 ACGTN x ACGTN; the N-row (index 4) is tallied but excluded from output
-    mismatch_matrix: list[list[int]] = field(default_factory=lambda: [[0] * 5 for _ in range(5)])
+    # 5x5 ACGTN x ACGTN per strand (FLAG 0x10); the N-row (index 4) is
+    # tallied but excluded from output
+    mismatch_matrix_fwd: list[list[int]] = field(
+        default_factory=lambda: [[0] * 5 for _ in range(5)]
+    )
+    mismatch_matrix_rev: list[list[int]] = field(
+        default_factory=lambda: [[0] * 5 for _ in range(5)]
+    )
+    # Inner-region match observations per reference base (A,C,G,T) per
+    # strand — the mismatch-table diagonal. Populated only with a
+    # reference accessor.
+    match_fwd: list[int] = field(default_factory=lambda: [0] * 4)
+    match_rev: list[int] = field(default_factory=lambda: [0] * 4)
     insertion_summary: list[int] = field(default_factory=lambda: [0] * 5)
     deletion_summary: list[int] = field(default_factory=lambda: [0] * 5)
     per_read_summary: _PerReadCounts = field(default_factory=_PerReadCounts)
@@ -170,6 +181,8 @@ class ErrorStatsCollector:
         self._paths = paths
         self._get_ref_seq = get_ref_seq
         self._ref_seq_cache: dict[str, str | None] = {}
+        # Per-reference prefix counts (see _ref_prefix_counts); built lazily.
+        self._ref_prefix: dict[str, list[list[int]]] = {}
         self._warned_ref_mismatch = False
 
     def per_base_counts(self, ref_name: str) -> tuple[int, int, int, int] | None:
@@ -262,6 +275,57 @@ class ErrorStatsCollector:
                 depth[i] = cur
         return depth
 
+    def _ref_prefix_counts(self, ref_name: str) -> list[list[int]] | None:
+        """Per-base prefix counts over the (uppercased) reference sequence.
+
+        ``pre[idx][n]`` = occurrences of base idx (a=0, c=1, g=2, t=3) in
+        ``ref_seq[:n]``; O(4*seq_len) once per reference, then O(1) per
+        ``:`` op. ``None`` when no reference accessor was given — match
+        counting (the mismatch-table diagonal) is off in that mode.
+        """
+        if self._get_ref_seq is None:
+            return None
+        pre = self._ref_prefix.get(ref_name)
+        if pre is None:
+            if ref_name not in self._ref_seq_cache:
+                self._ref_seq_cache[ref_name] = self._get_ref_seq(ref_name)
+            seq = self._ref_seq_cache[ref_name] or ""
+            pre = [[0] * (len(seq) + 1) for _ in range(4)]
+            counts = [0, 0, 0, 0]
+            base_to_i = {"A": 0, "C": 1, "G": 2, "T": 3}
+            for n, ch in enumerate(seq):
+                i = base_to_i.get(ch)
+                if i is not None:
+                    counts[i] += 1
+                for b in range(4):
+                    pre[b][n + 1] = counts[b]
+            self._ref_prefix[ref_name] = pre
+        return pre
+
+    @staticmethod
+    def _count_matches(
+        match_row: list[int],
+        pre: list[list[int]],
+        start: int,
+        end: int,
+        params: ErrorParams,
+    ) -> None:
+        """Add inner-region match observations per base for a ``:`` run.
+
+        ``pre`` comes from ``_ref_prefix_counts``; clamped to the fetched
+        sequence length (a run longer than the fasta is a bad input, count
+        what exists). Not region-gated runs clip to the inner region, the
+        same gate mismatches use.
+        """
+        clip_start = max(start, params.inner_region_start)
+        clip_end = min(end, params.inner_region_end, len(pre[0]) - 1)
+        if clip_start >= clip_end:
+            return
+        for idx in range(4):
+            delta = pre[idx][clip_end] - pre[idx][clip_start]
+            if delta:
+                match_row[idx] += delta
+
     def _get_or_create_ref_stats(self, ref_name: str) -> _PerRefErrorStats:
         ref_stats = self._stats_by_ref.get(ref_name)
         if ref_stats is None:
@@ -275,13 +339,20 @@ class ErrorStatsCollector:
         record_pos: int,
         ref_name: str,
         qname: str,
+        is_reverse: bool,
     ) -> None:
-        """Tally errors from pre-parsed CS operations (avoids re-regexing)."""
+        """Tally errors from pre-parsed CS operations (avoids re-regexing).
+
+        ``is_reverse`` is the record's FLAG 0x10 — it splits the
+        mismatch-table counts into forward (``adf``) and reverse (``adr``).
+        """
         params = self._error_params_map.get(ref_name)
         if params is None:
             return
 
         ref_stats = self._get_or_create_ref_stats(ref_name)
+        matrix = ref_stats.mismatch_matrix_rev if is_reverse else ref_stats.mismatch_matrix_fwd
+        match_row = ref_stats.match_rev if is_reverse else ref_stats.match_fwd
 
         current_pos = record_pos
         start_ref_pos = current_pos
@@ -299,6 +370,11 @@ class ErrorStatsCollector:
 
             if op_type == ":":
                 self._bump_depth(ref_stats, op_pos, int(val))
+                pre = self._ref_prefix_counts(ref_name)
+                if pre is not None:
+                    self._count_matches(
+                        match_row, pre, op_pos, op_pos + int(val), params
+                    )
                 current_pos += int(val)
 
             elif op_type == "*":
@@ -307,7 +383,7 @@ class ErrorStatsCollector:
                     ref_idx = _base_to_idx(ord(val[0]))
                     read_idx = _base_to_idx(ord(val[1]))
                     if ref_idx is not None and read_idx is not None:
-                        ref_stats.mismatch_matrix[ref_idx][read_idx] += 1
+                        matrix[ref_idx][read_idx] += 1
                         entry = self._get_or_create_pos(ref_stats.positional_errors, op_pos + 1)
                         entry.mismatches += 1
                         # Destination-base split of the mismatch above; a read-base
@@ -491,32 +567,54 @@ class ErrorStatsCollector:
         ref_summary.write_parquet(paths.ref_summary)
 
     def _write_mismatch_stats(self, paths: ErrorStatsOutputPaths) -> None:
-        """Long format: one row per (seq_name, ref, alt) pair.
+        """Substitution/accuracy matrix cells: 16 dense rows per reference.
 
-        12 dense rows per reference (A/C/G/T x A/C/G/T, ref == alt skipped,
-        zeros included). ``rate`` = count / the sequence's mismatch total,
-        0.0 on zero total; rows with an N base are not emitted, so the
-        rates can sum below 1 when N mismatches exist.
+        ``adf``/``adr`` split each count by the reads' strand (FLAG 0x10) —
+        forward and reverse supporting observations. The diagonal
+        (ref == alt) carries inner-region match observations, also
+        strand-split — null when no reference accessor was given (match
+        counting off; the CLI always gives one). ``rate`` = (adf+adr) /
+        the sequence's mismatch total, off-diagonal only, 0.0 on zero
+        total. ``norm_rate`` = (adf+adr) / the row total (matches + all
+        mismatches from that ref base, N read-base mismatches included in
+        the denominator without a row of their own) — the conditional
+        P(read base | ref base), the ref-composition bias removed; 0.0 on
+        zero row total. A strand-balanced true substitution keeps
+        ``adf ~ adr``; a strand-asymmetric one flags an artifact.
         """
         logger.info("Writing mismatch table to {}", paths.mismatch)
         mismatch_stats = MismatchLongStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
+        has_ref = self._get_ref_seq is not None
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
-            total = ref_stats.per_base_summary.mismatches
+            m_total = ref_stats.per_base_summary.mismatches
             for ref_base, ref_idx in (("A", 0), ("C", 1), ("G", 2), ("T", 3)):
+                fwd_row = ref_stats.mismatch_matrix_fwd[ref_idx]
+                rev_row = ref_stats.mismatch_matrix_rev[ref_idx]
+                row_total = (
+                    ref_stats.match_fwd[ref_idx]
+                    + ref_stats.match_rev[ref_idx]
+                    + sum(fwd_row)
+                    + sum(rev_row)
+                )
                 for alt_base, alt_idx in (("A", 0), ("C", 1), ("G", 2), ("T", 3)):
                     if ref_idx == alt_idx:
-                        continue  # ref -> same base is a match, never tallied
-                    count = ref_stats.mismatch_matrix[ref_idx][alt_idx]
-                    mismatch_stats.add(
-                        seq_name,
-                        ref_base,
-                        alt_base,
-                        count,
-                        (count / total) if total else 0.0,
+                        adf = ref_stats.match_fwd[ref_idx] if has_ref else None
+                        adr = ref_stats.match_rev[ref_idx] if has_ref else None
+                        rate = None
+                    else:
+                        adf = fwd_row[alt_idx]
+                        adr = rev_row[alt_idx]
+                        rate = ((adf + adr) / m_total) if m_total else 0.0
+                    total = None if adf is None or adr is None else adf + adr
+                    norm_rate = (
+                        None
+                        if total is None
+                        else ((total / row_total) if row_total else 0.0)
                     )
+                    mismatch_stats.add(seq_name, ref_base, alt_base, adf, adr, rate, norm_rate)
         mismatch_stats.write_parquet(paths.mismatch)
 
     def _write_insertion_stats(self, paths: ErrorStatsOutputPaths) -> None:

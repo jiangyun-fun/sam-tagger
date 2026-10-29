@@ -87,6 +87,7 @@ def test_cli_error_stats_prefix(tmp_path) -> None:
         cfg,
         H_SEQ1_28,
         "r1\t0\tseq1\t1\t60\t7M1I4M1D15M\t*\t0\t0\tAAAAACCTXCCCGCCCCCCCCCCCCCC\t*\tcs:Z::7*ct+g:4-c:15\n",
+        fasta={"seq1": "AAAAACC" + "C" + "GGG" + "C" + "C" * 16},
     )
     pre = tmp_path / "err"
     code = _run(
@@ -96,6 +97,8 @@ def test_cli_error_stats_prefix(tmp_path) -> None:
             str(setup.input_bam),
             "--config",
             str(setup.config_path),
+            "--fasta",
+            str(setup.fasta_path),
             "--prefix",
             str(pre),
         ]

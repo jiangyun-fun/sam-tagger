@@ -337,17 +337,33 @@ class PerRefCountsStats:
 
 @dataclass
 class MismatchLongStats:
-    """5-column long-format mismatch table: (seq_name, ref, alt, count, rate).
+    """7-column long-format substitution table:
+    (seq_name, ref, alt, adf, adr, rate, norm_rate).
 
-    ``rate`` = count / the sequence's mismatch total (0.0 on zero total),
-    normalized inside the sequence. Rows with N bases or ref == alt are
-    not emitted; N mass keeps the rates summing below 1 when present.
+    ``adf``/``adr`` are the forward/reverse (FLAG 0x10) observation counts;
+    the ref == alt diagonal carries match observations, null there when no
+    reference accessor was given. ``rate`` = (adf+adr) / the sequence's
+    mismatch total (0.0 on zero total), off-diagonal only — null on the
+    diagonal. ``norm_rate`` = (adf+adr) / the row total (matches +
+    mismatches from that ref base) — the conditional P(read base | ref
+    base); null where the counts are null, 0.0 on zero row total.
     """
 
-    data: list[tuple[str, str, str, int, float]] = field(default_factory=list)
+    data: list[tuple[str, str, str, int | None, int | None, float | None, float | None]] = (
+        field(default_factory=list)
+    )
 
-    def add(self, seq_name: str, ref: str, alt: str, count: int, rate: float) -> None:
-        self.data.append((seq_name, ref, alt, count, rate))
+    def add(
+        self,
+        seq_name: str,
+        ref: str,
+        alt: str,
+        adf: int | None,
+        adr: int | None,
+        rate: float | None,
+        norm_rate: float | None,
+    ) -> None:
+        self.data.append((seq_name, ref, alt, adf, adr, rate, norm_rate))
 
     def to_dataframe(self) -> pl.DataFrame:
         return pl.DataFrame(
@@ -355,15 +371,19 @@ class MismatchLongStats:
                 "seq_name": [r[0] for r in self.data],
                 "ref": [r[1] for r in self.data],
                 "alt": [r[2] for r in self.data],
-                "count": [r[3] for r in self.data],
-                "rate": [r[4] for r in self.data],
+                "adf": [r[3] for r in self.data],
+                "adr": [r[4] for r in self.data],
+                "rate": [r[5] for r in self.data],
+                "norm_rate": [r[6] for r in self.data],
             },
             schema={
                 "seq_name": pl.Utf8,
                 "ref": pl.Utf8,
                 "alt": pl.Utf8,
-                "count": pl.UInt64,
+                "adf": pl.UInt64,
+                "adr": pl.UInt64,
                 "rate": pl.Float64,
+                "norm_rate": pl.Float64,
             },
         )
 

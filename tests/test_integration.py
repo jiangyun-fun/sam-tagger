@@ -236,11 +236,20 @@ class TestErrorStats:
             "err_read1\t0\tseq1\t1\t60\t7M1I4M1D15M\t*\t0\t0\tAAAAACCTXCCCGCCCCCCCCCCCCCC\t*\tcs:Z::7*ct+g:4-c:15\n"
             "err_read2\t0\tseq1\t1\t60\t28M\t*\t0\t0\tAAAAACACTCCCCCCCCCCCCCCCCCCC\t*\tcs:Z::7*ct:20"
         )
-        setup = setup_env(tmp_path, cfg, H_SEQ1_28, sam_records)
+        # fasta: ref pos 7 (0-based) = C for the *ct mismatch, pos 11 = C
+        # for the -c deletion (keeps the smoothing warning silent)
+        fa = "AAAAACC" + "C" + "GGG" + "C" + "C" * 16
+        setup = setup_env(tmp_path, cfg, H_SEQ1_28, sam_records, fasta={"seq1": fa})
         assert setup.config_path is not None
+        assert setup.fasta_path is not None
         prefix = tmp_path / "stats"
         run_error_stats(
-            ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix)
+            ErrorStatsArgs(
+                input_bam=setup.input_bam,
+                config=setup.config_path,
+                fasta=setup.fasta_path,
+                prefix=prefix,
+            )
         )
 
         per_base = tmp_path / "stats.per_base.parquet"
@@ -486,6 +495,7 @@ def test_error_stats_smoothed_deletion_with_fasta(tmp_path: Path) -> None:
         fasta={"hp": "TTTAAATTT"},
     )
     assert setup.config_path is not None
+    assert setup.fasta_path is not None
     prefix = tmp_path / "e"
     run_error_stats(
         ErrorStatsArgs(
@@ -531,11 +541,18 @@ def test_error_stats_total_matches_samtools_depth(tmp_path: Path) -> None:
         {"hp": {"error_primer_start_len": 0, "error_primer_end_len": 0}},
         hdr,
         sam,
+        fasta={"hp": "TTTAAATTT"},
     )
     assert setup.config_path is not None
+    assert setup.fasta_path is not None
     prefix = tmp_path / "e"
     run_error_stats(
-        ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=prefix)
+        ErrorStatsArgs(
+            input_bam=setup.input_bam,
+            config=setup.config_path,
+            fasta=setup.fasta_path,
+            prefix=prefix,
+        )
     )
     df = pl.read_parquet(tmp_path / "e.error.parquet")
     ours = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))

@@ -208,8 +208,9 @@ def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
         f"r2\t0\tseq1\t1\t60\t24M\t*\t0\t0\t{'ACGT' * 6}\t{Q * 24}\tcs:Z::10*at:13\n"
         f"r3\t0\tseq2\t1\t60\t26M\t*\t0\t0\t{'AC' * 13}\t{Q * 26}\tcs:Z::26\n"
     )
-    setup = setup_env(tmp_path, cfg, HDR_3, sam)
+    setup = setup_env(tmp_path, cfg, HDR_3, sam, fasta={"seq1": "ACGT" * 7, "seq2": "AC" * 13})
     assert setup.config_path is not None
+    assert setup.fasta_path is not None
 
     qc_out = tmp_path / "qc.parquet"
     run_qc_summary(
@@ -218,7 +219,14 @@ def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
     qc = _read_qc(qc_out)
 
     pre = tmp_path / "err"
-    run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=pre))
+    run_error_stats(
+        ErrorStatsArgs(
+            input_bam=setup.input_bam,
+            config=setup.config_path,
+            fasta=setup.fasta_path,
+            prefix=pre,
+        )
+    )
     per_base = _read_per_base(tmp_path / "err.per_base.parquet")
 
     for ref in ("seq1", "seq2"):

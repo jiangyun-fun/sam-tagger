@@ -143,7 +143,7 @@ def test_pileup_intervals_multiref_merge(tmp_path: Path) -> None:
 
 def test_empty_bam_annotate_pileup_errorstats(tmp_path: Path) -> None:
     cfg = {"seq1": {"error_primer_start_len": 5, "error_primer_end_len": 5}}
-    setup = setup_env(tmp_path, cfg, H_SEQ1_28, "")  # no records
+    setup = setup_env(tmp_path, cfg, H_SEQ1_28, "", fasta={"seq1": "ACGT" * 7})  # no records
 
     run_annotate(_args(setup, add_fl="FL"))
     assert sum(1 for _ in pysam.AlignmentFile(str(setup.output_bam), "rb")) == 0
@@ -153,8 +153,16 @@ def test_empty_bam_annotate_pileup_errorstats(tmp_path: Path) -> None:
     assert pl.read_parquet(pileup_out).height == 0
 
     assert setup.config_path is not None
+    assert setup.fasta_path is not None
     pre = tmp_path / "err"
-    run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path, prefix=pre))
+    run_error_stats(
+        ErrorStatsArgs(
+            input_bam=setup.input_bam,
+            config=setup.config_path,
+            fasta=setup.fasta_path,
+            prefix=pre,
+        )
+    )
     for ext in (
         "error",
         "mismatch",

@@ -150,7 +150,7 @@ def test_base_to_idx() -> None:
 def test_error_stats_tally_mismatch(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":10*ac:79"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":10*ac:79"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.per_read_summary.total_reads == 1
     assert st.per_read_summary.reads_with_mismatch == 1
@@ -164,7 +164,7 @@ def test_error_stats_tally_mismatch_n_read_base(tmp_path: Path) -> None:
     # read-base N counts in mismatch but in no to_* column; ref-base N lands in to_*
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":10*an:10*na:78"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":10*an:10*na:78"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.positional_errors[11].mismatches == 1  # *an
     assert st.positional_errors[11].to_a == 0
@@ -175,7 +175,7 @@ def test_error_stats_tally_mismatch_n_read_base(tmp_path: Path) -> None:
 def test_error_stats_tally_insertion(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":20+at:79"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":20+at:79"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.per_read_summary.reads_with_insertion == 1
     assert st.per_base_summary.insertions == 2
@@ -185,7 +185,7 @@ def test_error_stats_tally_insertion(tmp_path: Path) -> None:
 def test_error_stats_tally_deletion(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":20-gt:78"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":20-gt:78"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.per_read_summary.reads_with_deletion == 1
     assert st.per_base_summary.deletions == 2
@@ -197,7 +197,7 @@ def test_error_stats_ignores_outside_region(tmp_path: Path) -> None:
     # mismatch at pos 5 is in the start primer, outside inner [10,90)
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":5*ac:93"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":5*ac:93"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.per_base_summary.mismatches == 0
     assert st.per_read_summary.reads_with_mismatch == 0
@@ -206,7 +206,7 @@ def test_error_stats_ignores_outside_region(tmp_path: Path) -> None:
 def test_error_stats_unknown_ref_skipped(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":50*ac:49"), 0, "not-in-config", "r1")
+    col.tally_from_parsed(parse_cs_tag(":50*ac:49"), 0, "not-in-config", "r1", False)
     assert col._stats_by_ref == {}  # nothing tallied
 
 
@@ -214,7 +214,7 @@ def test_error_stats_write_all_eight(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(params, paths)
-    col.tally_from_parsed(parse_cs_tag(":20*ac+g-gt:76"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":20*ac+g-gt:76"), 0, "ref1", "r1", False)
     col.write_results()
     for p in (
         paths.error,
@@ -261,21 +261,29 @@ def test_error_stats_write_all_eight(tmp_path: Path) -> None:
 
 
 def test_error_stats_summary_table_schemas(tmp_path: Path) -> None:
-    # one read ":4*ac+gt-cg:2" over a 10 bp ref, inner region [0,10):
-    # 1 mismatch (A->C), inserted g+t, deleted c+g, 9 aligned bases.
+    # one read ":4*ac+gt-cg:2" over ref ACGTACGTAC (10 bp), inner [0,10):
+    # `:4` covers 0-3 (A C G T), `:2` covers 7-8 (T A) -> matches A2 C1 G1 T2;
+    # 1 mismatch (A->C at 4), inserted g+t at 5, deleted c+g at 5-6, 9 aligned.
     params = {"ref1": ErrorParams(seq_len=10, inner_region_start=0, inner_region_end=10)}
     paths = _err_paths(tmp_path)
-    col = ErrorStatsCollector(params, paths)
-    col.tally_from_parsed(parse_cs_tag(":4*ac+gt-cg:2"), 0, "ref1", "r1")
+    col = ErrorStatsCollector(params, paths, get_ref_seq=lambda name: "ACGTACGTAC")
+    col.tally_from_parsed(parse_cs_tag(":4*ac+gt-cg:2"), 0, "ref1", "r1", False)
     col.write_results()
 
     mm = pl.read_parquet(paths.mismatch)
-    assert mm.columns == ["seq_name", "ref", "alt", "count", "rate"]
-    assert mm.height == 12  # 4x4 minus the ref==alt diagonal, zeros included
-    hit = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "C"))
-    assert hit["count"].item() == 1
-    assert hit["rate"].item() == pytest.approx(1.0)  # seq mismatch total is 1
-    assert mm.filter((pl.col("ref") == "G") & (pl.col("alt") == "T"))["count"].item() == 0
+    assert mm.columns == ["seq_name", "ref", "alt", "adf", "adr", "rate", "norm_rate"]
+    assert mm.height == 16  # dense 4x4 incl. the diagonal
+    hit = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "C")).row(0, named=True)
+    assert (hit["adf"], hit["adr"]) == (1, 0)  # forward read
+    assert hit["rate"] == pytest.approx(1.0)  # seq mismatch total is 1
+    assert hit["norm_rate"] == pytest.approx(1 / 3)  # row: 2 matches + 1 mismatch
+    diag = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "A")).row(0, named=True)
+    assert (diag["adf"], diag["adr"]) == (2, 0)  # match observations on the diagonal
+    assert diag["rate"] is None
+    assert diag["norm_rate"] == pytest.approx(2 / 3)  # P(read=A | ref=A)
+    gg = mm.filter((pl.col("ref") == "G") & (pl.col("alt") == "G")).row(0, named=True)
+    assert (gg["adf"], gg["adr"]) == (1, 0)
+    assert gg["norm_rate"] == pytest.approx(1.0)
 
     ins = pl.read_parquet(paths.insertion)
     assert ins.columns == [
@@ -312,9 +320,56 @@ def test_error_stats_summary_table_schemas(tmp_path: Path) -> None:
     assert row["insertion_rate"] == pytest.approx(1.0)
 
 
+def test_error_stats_match_tally_no_ref_accessor(tmp_path: Path) -> None:
+    # without a reference accessor the diagonal stays null (library mode;
+    # the CLI requires --fasta so its output is always populated)
+    params = {"ref1": ErrorParams(seq_len=10, inner_region_start=0, inner_region_end=10)}
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(params, paths)
+    col.tally_from_parsed(parse_cs_tag(":4*ac+gt-cg:2"), 0, "ref1", "r1", False)
+    col.write_results()
+    mm = pl.read_parquet(paths.mismatch)
+    assert mm.height == 16
+    diag = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "A")).row(0, named=True)
+    assert diag["adf"] is None and diag["adr"] is None
+    assert diag["norm_rate"] is None
+    off = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "C")).row(0, named=True)
+    assert off["adf"] == 1 and off["norm_rate"] == pytest.approx(1.0)
+
+
+def test_error_stats_mismatch_strand_split(tmp_path: Path) -> None:
+    # three reads over ACGTACGTAC, inner [0,10): each read matches A at
+    # idx 0 and 8 (2 per read). f1 fwd + f2 fwd carry A->T / A->G; r1 rev
+    # carries A->T. A row: 6 matches + 3 mismatches = 9 observations.
+    params = {"ref1": ErrorParams(seq_len=10, inner_region_start=0, inner_region_end=10)}
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(params, paths, get_ref_seq=lambda name: "ACGTACGTAC")
+    col.tally_from_parsed(parse_cs_tag(":4*at:5"), 0, "ref1", "f1", False)
+    col.tally_from_parsed(parse_cs_tag(":4*at:5"), 0, "ref1", "r1", True)
+    col.tally_from_parsed(parse_cs_tag(":4*ag:5"), 0, "ref1", "f2", False)
+    col.write_results()
+
+    mm = pl.read_parquet(paths.mismatch)
+
+    def _row(ref: str, alt: str) -> dict:
+        return mm.filter((pl.col("ref") == ref) & (pl.col("alt") == alt)).row(0, named=True)
+
+    at = _row("A", "T")
+    assert (at["adf"], at["adr"]) == (1, 1)  # both strands — balanced substitution
+    assert at["rate"] == pytest.approx(2 / 3)
+    assert at["norm_rate"] == pytest.approx(2 / 9)
+    ag = _row("A", "G")
+    assert (ag["adf"], ag["adr"]) == (1, 0)  # forward-only — strand-asymmetric
+    assert ag["norm_rate"] == pytest.approx(1 / 9)
+    aa = _row("A", "A")
+    assert (aa["adf"], aa["adr"]) == (4, 2)  # diagonal matches split by strand
+    assert aa["rate"] is None
+    assert aa["norm_rate"] == pytest.approx(2 / 3)
+
+
 def test_error_paths_from_prefix(tmp_path: Path) -> None:
     args = ErrorStatsArgs(
-        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats"
+        input_bam=Path("in.bam"), config=Path("c.toml"), fasta=Path("ref.fa"), prefix=tmp_path / "stats"
     )
     p = ErrorStatsOutputPaths.from_args(args)
     assert p.error == tmp_path / "stats.error.parquet"
@@ -326,7 +381,7 @@ def test_error_paths_from_prefix(tmp_path: Path) -> None:
 def test_error_paths_from_prefix_with_suffix(tmp_path: Path) -> None:
     # literal prefix semantics: .{ext} is appended verbatim, nothing stripped
     args = ErrorStatsArgs(
-        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats.tsv"
+        input_bam=Path("in.bam"), config=Path("c.toml"), fasta=Path("ref.fa"), prefix=tmp_path / "stats.tsv"
     )
     p = ErrorStatsOutputPaths.from_args(args)
     assert p.error == tmp_path / "stats.tsv.error.parquet"
@@ -336,7 +391,7 @@ def test_error_paths_from_prefix_dotted_stem(tmp_path: Path) -> None:
     # dotted stems ({sample}.{ref}) keep every segment — the old Path.stem
     # branch dropped the last one (Sample.Ref -> Sample.error.parquet)
     args = ErrorStatsArgs(
-        input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "Sample.Ref"
+        input_bam=Path("in.bam"), config=Path("c.toml"), fasta=Path("ref.fa"), prefix=tmp_path / "Sample.Ref"
     )
     p = ErrorStatsOutputPaths.from_args(args)
     assert p.error == tmp_path / "Sample.Ref.error.parquet"
@@ -347,6 +402,7 @@ def test_error_paths_from_explicit(tmp_path: Path) -> None:
     args = ErrorStatsArgs(
         input_bam=Path("in.bam"),
         config=Path("c.toml"),
+        fasta=Path("ref.fa"),
         error_out=tmp_path / "e.parquet",
         mismatch_out=tmp_path / "m.parquet",
         insertion_out=tmp_path / "i.parquet",
@@ -363,7 +419,7 @@ def test_error_paths_from_explicit(tmp_path: Path) -> None:
 
 def test_error_paths_from_args_missing_raises(tmp_path: Path) -> None:
     # neither prefix nor all 8 explicit -> ValueError
-    args = ErrorStatsArgs(input_bam=Path("in.bam"), config=Path("c.toml"))
+    args = ErrorStatsArgs(input_bam=Path("in.bam"), config=Path("c.toml"), fasta=Path("ref.fa"))
     with pytest.raises(ValueError):
         ErrorStatsOutputPaths.from_args(args)
 
@@ -382,14 +438,14 @@ def test_ref_summary_max_min_and_max_error_rate(tmp_path: Path) -> None:
         "ref3": ErrorParams(seq_len=3, inner_region_start=0, inner_region_end=3),
     }
     col = ErrorStatsCollector(params, _err_paths(tmp_path))
-    col.tally_from_parsed(parse_cs_tag(":3"), 0, "ref1", "r1")
-    col.tally_from_parsed(parse_cs_tag(":1"), 0, "ref1", "r2")
-    col.tally_from_parsed(parse_cs_tag("*ac:2"), 0, "ref1", "r3")
-    col.tally_from_parsed(parse_cs_tag(":1*ac:1"), 0, "ref1", "r4")
+    col.tally_from_parsed(parse_cs_tag(":3"), 0, "ref1", "r1", False)
+    col.tally_from_parsed(parse_cs_tag(":1"), 0, "ref1", "r2", False)
+    col.tally_from_parsed(parse_cs_tag("*ac:2"), 0, "ref1", "r3", False)
+    col.tally_from_parsed(parse_cs_tag(":1*ac:1"), 0, "ref1", "r4", False)
     # ref2: no reads -> both metrics 0.0
     # ref3: one read covers only [0,2) -> depth [1,1,0], a zero-depth base
     # pins max_min_rate at 0.0 (min over ALL positions, zeros included)
-    col.tally_from_parsed(parse_cs_tag(":2"), 0, "ref3", "r5")
+    col.tally_from_parsed(parse_cs_tag(":2"), 0, "ref3", "r5", False)
     col.write_results()
 
     df = pl.read_parquet(tmp_path / "ref_summary.parquet")
@@ -509,8 +565,8 @@ def _hp_get(seq: str):
 def test_smoothed_deletion_user_example(tmp_path: Path) -> None:
     # Same biological deletion placed at two different positions by two alignments.
     col = ErrorStatsCollector(_hp_params(), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF))
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
-    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4", False)
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5", False)
     st = col._stats_by_ref["hp"]
     assert st.positional_errors[4].smoothed_deletion == pytest.approx(2 / 3)
     assert st.positional_errors[5].smoothed_deletion == pytest.approx(2 / 3)
@@ -526,7 +582,7 @@ def test_smoothed_deletion_user_example(tmp_path: Path) -> None:
 def test_smoothed_deletion_two_bases(tmp_path: Path) -> None:
     # TTTATTT over TTTAAATTT: two As deleted from the AAA run -> 2/3 at each position.
     col = ErrorStatsCollector(_hp_params(), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF))
-    col.tally_from_parsed(parse_cs_tag(":3-aa:3"), 0, "hp", "r1")
+    col.tally_from_parsed(parse_cs_tag(":3-aa:3"), 0, "hp", "r1", False)
     st = col._stats_by_ref["hp"]
     for pos in (4, 5, 6):
         assert st.positional_errors[pos].smoothed_deletion == pytest.approx(2 / 3)
@@ -539,7 +595,7 @@ def test_smoothed_deletion_non_homopolymer(tmp_path: Path) -> None:
         _err_paths(tmp_path),
         get_ref_seq={"ref1": "A" * 20 + "CGTT" + "A" * 76}.get,
     )
-    col.tally_from_parsed(parse_cs_tag(":20-c:79"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":20-c:79"), 0, "ref1", "r1", False)
     st = col._stats_by_ref["ref1"]
     assert st.positional_errors[21].smoothed_deletion == pytest.approx(1.0)
     assert st.positional_errors[21].deletions == 1
@@ -550,7 +606,7 @@ def test_smoothed_deletion_region_clipping(tmp_path: Path) -> None:
     col = ErrorStatsCollector(
         _hp_params(inner_end=5), _err_paths(tmp_path), get_ref_seq=_hp_get(_HP_REF)
     )
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1", False)
     st = col._stats_by_ref["hp"]
     assert st.positional_errors[4].smoothed_deletion == pytest.approx(1 / 3)
     assert st.positional_errors[5].smoothed_deletion == pytest.approx(1 / 3)
@@ -561,7 +617,7 @@ def test_smoothed_deletion_null_without_ref_seq(tmp_path: Path) -> None:
     # No get_ref_seq -> the written column is null everywhere, others unchanged.
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(_hp_params(), paths)
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "r1", False)
     col.write_results()
     df = pl.read_parquet(paths.error)
     assert "smoothed_deletion" in df.columns
@@ -582,8 +638,8 @@ def test_depth_total_j_semantics(tmp_path: Path) -> None:
     # Both hp reads span the whole reference; deletions count as covered (-J).
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(_hp_params(), paths)
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
-    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4", False)
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5", False)
     col.write_results()
     df = _read_error_parquet(paths)
     assert df["total"].to_list() == [2] * 9
@@ -598,8 +654,8 @@ def test_depth_total_clean_read_and_insertion(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=20, inner_region_start=0, inner_region_end=20)}
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(params, paths)
-    col.tally_from_parsed(parse_cs_tag(":20"), 0, "ref1", "clean")
-    col.tally_from_parsed(parse_cs_tag(":10+g:5"), 0, "ref1", "ins")
+    col.tally_from_parsed(parse_cs_tag(":20"), 0, "ref1", "clean", False)
+    col.tally_from_parsed(parse_cs_tag(":10+g:5"), 0, "ref1", "ins", False)
     col.write_results()
     df = _read_error_parquet(paths)
     total = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))
@@ -617,7 +673,7 @@ def test_depth_total_not_region_gated(tmp_path: Path) -> None:
     col2 = ErrorStatsCollector(
         {"hp": ErrorParams(seq_len=9, inner_region_start=3, inner_region_end=9)}, paths
     )
-    col2.tally_from_parsed(parse_cs_tag(":2-a:6"), 0, "hp", "r1")
+    col2.tally_from_parsed(parse_cs_tag(":2-a:6"), 0, "hp", "r1", False)
     col2.write_results()
     df = _read_error_parquet(paths)
     total = dict(zip(df["position"].to_list(), df["total"].to_list(), strict=True))
@@ -631,8 +687,8 @@ def test_depth_rates_with_smoothed(tmp_path: Path) -> None:
     # With fasta: smoothed 2/3 over total 2 -> rate 1/3 at 4,5,6.
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(_hp_params(), paths, get_ref_seq=_hp_get(_HP_REF))
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
-    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4", False)
+    col.tally_from_parsed(parse_cs_tag(":4-a:4"), 0, "hp", "p5", False)
     col.write_results()
     df = _read_error_parquet(paths)
     sr = dict(zip(df["position"].to_list(), df["smoothed_deletion_rate"].to_list(), strict=True))
@@ -645,7 +701,7 @@ def test_depth_rates_with_smoothed(tmp_path: Path) -> None:
 def test_depth_rate_null_propagation_without_fasta(tmp_path: Path) -> None:
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(_hp_params(), paths)
-    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4")
+    col.tally_from_parsed(parse_cs_tag(":3-a:5"), 0, "hp", "p4", False)
     col.write_results()
     df = _read_error_parquet(paths)
     assert df["smoothed_deletion"].null_count() == df.height

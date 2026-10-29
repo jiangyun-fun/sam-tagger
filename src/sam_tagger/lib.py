@@ -405,11 +405,9 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
                 "error-stats: config has no error_primer_start_len / error_primer_end_len entries."
             )
         paths = ErrorStatsOutputPaths.from_args(args)
-        faidx_reader = pysam.FastaFile(str(args.fasta)) if args.fasta is not None else None
+        faidx_reader = pysam.FastaFile(str(args.fasta))
 
         def _get_ref_seq(name: str) -> str | None:
-            if faidx_reader is None:
-                return None
             return faidx_reader.fetch(name).upper()
 
         collector = ErrorStatsCollector(cfg.error, paths, get_ref_seq=_get_ref_seq)
@@ -427,14 +425,14 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
             parsed = parse_cs_tag(str(record.get_tag("cs")))
             ref_name = bam_reader.get_reference_name(record.reference_id)
             collector.tally_from_parsed(
-                parsed, record.reference_start, ref_name, record.query_name or ""
+                parsed, record.reference_start, ref_name, record.query_name or "",
+                record.is_reverse,
             )
 
         logger.info("Processed {} records.", record_count)
         watch.summarize()
         collector.write_results()
-        if faidx_reader is not None:
-            faidx_reader.close()
+        faidx_reader.close()
     finally:
         bam_reader.close()
 
@@ -566,7 +564,8 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
                         qc.tally_on_target(ref_name)
                 if error_collector is not None:
                     error_collector.tally_from_parsed(
-                        parsed_ops, record.reference_start, ref_name, record.query_name or ""
+                        parsed_ops, record.reference_start, ref_name,
+                        record.query_name or "", record.is_reverse,
                     )
 
             if cfg.ap is not None:

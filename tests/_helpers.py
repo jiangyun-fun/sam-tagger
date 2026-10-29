@@ -26,6 +26,7 @@ class Setup:
     config_path: Path | None
     input_bam: Path
     output_bam: Path
+    fasta_path: Path | None = None
 
 
 def write_fasta(path: Path, refs: dict[str, str]) -> Path:
@@ -63,9 +64,11 @@ def setup_env(
         config_path = tmp_path / "config.csv"
         _write_config_csv(config_path, config)
 
+    fasta_path: Path | None = None
     if fasta is not None:
-        write_fasta(tmp_path / "ref.fa", fasta)
-        pysam.faidx(str(tmp_path / "ref.fa"))  # type: ignore[attr-defined]
+        fasta_path = tmp_path / "ref.fa"
+        write_fasta(fasta_path, fasta)
+        pysam.faidx(str(fasta_path))  # type: ignore[attr-defined]
 
     sam_path = tmp_path / "test.sam"
     input_bam = tmp_path / "test.bam"
@@ -80,7 +83,11 @@ def setup_env(
             bam_writer.write(record)
 
     return Setup(
-        tmp_dir=tmp_path, config_path=config_path, input_bam=input_bam, output_bam=output_bam
+        tmp_dir=tmp_path,
+        config_path=config_path,
+        input_bam=input_bam,
+        output_bam=output_bam,
+        fasta_path=fasta_path,
     )
 
 
