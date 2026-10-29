@@ -17,72 +17,78 @@ include-in-header:
 
 # Objective
 
-Three schema changes across the two stat subcommands, shipped as v0.6.0 and
+Schema changes across the two stat subcommands, shipped as v0.6.0 and
 deployed to the sibio conda channel:
 
-1. `qc-summary` gains a `ref_len` column (BAM-header reference length).
-2. All `_pct` columns rename to `_rate` — the values are already 0–1
+1. `qc-summary` gains `ref_len`, `effective_len`, and `efficiency` columns.
+2. All `_pct` columns rename to `_rate` — the values were already 0–1
    fractions, so the name was wrong, not the values.
 3. `error-stats` gains an 8th parquet, one row per reference:
-   `max_min_rate` (min depth / max depth over the reference; a zero-depth
-   base makes it 0.0) and `max_error_rate` (max over positions of
-   max(insertion_rate, deletion_rate, mismatch_rate)).
+   `max_min_rate` (min depth / max depth over the reference) and
+   `max_error_rate` (max over positions of max(insertion_rate,
+   deletion_rate, mismatch_rate)).
+4. (Added mid-task.) Every stat subcommand's `--help` lists its output
+   columns.
+5. (Added mid-task.) `effective_len` = ref_len − tc_primer_start_len −
+   tc_primer_end_len and `efficiency` = on_target_rate^(1/effective_len).
 
-# Scope
+# Scope (as built)
 
-- `src/sam_tagger/stats/qc_summary.py` — `ref_len` column; `_pct` → `_rate`;
-  `QcSummaryCollector.__init__` takes `ref_lengths: dict[str, int]` (public
-  API signature change; minor-bump territory).
-- `src/sam_tagger/stats/error_stats.py` — `ErrorStatsOutputPaths.ref_summary`;
+- `stats/qc_summary.py` — `ref_len`/`effective_len`/`efficiency` columns;
+  `_pct` → `_rate`; `QcSummaryCollector(ref_lengths, tc_params=None)`.
+- `stats/error_stats.py` — `ErrorStatsOutputPaths.ref_summary`;
   `from_args` accepts `--ref-summary-out` (prefix or all 8 explicit paths);
-  `_write_ref_summary_stats` reuses `_depth_array` (same `samtools depth -J`
-  universe as `error.parquet`'s `total`).
-- `src/sam_tagger/parquet_writer.py` — new `RefSummaryStats`
-  (seq_name, max_min_rate, max_error_rate; Float64 rates).
-- `src/sam_tagger/cli.py` — `--ref-summary-out` flag; 7-file → 8-file wording.
-- `src/sam_tagger/lib.py` — pass `ref_lengths` into `QcSummaryCollector`.
-- Docs: `README.md`, `docs/usage.qmd` (also repair the split error-stats
-  output table).
+  `_write_ref_summary_stats` reuses `_depth_array`.
+- `parquet_writer.py` — new `RefSummaryStats` (seq_name, max_min_rate,
+  max_error_rate).
+- `cli.py` — `--ref-summary-out` flag; column tables/lists in the
+  error-stats, qc-summary, and pileup command help.
+- `lib.py` — pass `ref_lengths` + `cfg.tc` into `QcSummaryCollector`.
+- Docs: `README.md`, `docs/usage.qmd` (also reassembled the split
+  error-stats output table).
 - Tests: `test_qc_summary.py`, `test_stats.py`, `test_validation.py`.
 - Version `0.5.1` → `0.6.0` in `pyproject.toml`, `pixi.toml`, `__init__.py`.
-- Cross-repo: conda-recipes `recipes/sam-tagger/meta.yaml` → 0.6.0 + new
-  sdist sha256; build (`pixi run build-meta sam-tagger`); publish to sibio
-  (`/bioproj/data/minio` index + upload); verify via `pixi search`.
+- Cross-repo: conda-recipes `meta.yaml` → 0.6.0 + new sdist sha256; built
+  via `pixi run build-meta`; published to sibio; verified by fresh-env
+  install.
 
-# Interpretations (stated, correct cheaply if wrong)
+# Interpretations (stated)
 
 - `max_min_rate` min/max run over ALL reference positions, zeros included
   (literal reading of the `[3,1,4,5] → 1/5` example); an uncovered base
-  therefore pins the metric at 0.0.
+  pins the metric at 0.0.
 - `max_error_rate` per reference = max over positions and over the three
-  rate kinds, value-identical to the per-position `*_rate` columns.
-- No reads → both metrics 0.0 (matches the "0.0 on zero depth" convention).
+  rate kinds, value-identical to `error.parquet`'s per-position `*_rate`.
+- `effective_len` is null without a TC config row for the reference;
+  `efficiency` is null when `effective_len` is null or ≤ 0.
+- No reads → depth-based metrics 0.0 (matches the "0.0 on zero depth"
+  convention).
 
-# Planned steps
+# Steps (as executed)
 
-1. Write this plan; implement qc-summary changes + tests.
-2. Implement error-stats `ref_summary` + tests; update cli/lib/writer.
-3. Update README + usage.qmd; run `pixi run -e dev test`, `lint`, `typecheck`.
-4. Commit per stage (feat x2, docs), then `chore(release): bump version to
-   0.6.0`; annotated tag `v0.6.0`; push `main` + tag; workflow attaches
-   sdist + wheel.
-5. conda-recipes: meta.yaml 0.6.0 + sha256; `pixi run build-meta sam-tagger`;
-   verify artifact run-deps; copy to `sibio_local/noarch/`; `pixi run index`
-   + `pixi run upload` from `/bioproj/data/minio`; verify `pixi search`.
-6. Report pair + requirements audit (sam-tagger primary, conda-recipes
-   mirror); rolling next/recommendation sync.
+1. Plan written; qc-summary `ref_len` + `_pct`→`_rate` implemented
+   (commit `3f5816c`).
+2. error-stats `ref_summary` implemented (`742dc40`); docs (`de18899`).
+3. Mid-task additions arrived; the first local bump commit + tag were
+   reset (never pushed) and re-cut after the additions: help column
+   tables (`7ceb952`), `effective_len`/`efficiency` (`98a3ec4`), then the
+   bump (`f053f8e`) and annotated tag `v0.6.0`.
+4. `pixi run -e dev test` 154 passed; lint + pyright clean; two smoke
+   runs verified the new parquet/columns end-to-end.
+5. Pushed `main` + tag; release workflow built sdist + wheel; curated
+   notes installed via `gh release edit`.
+6. conda-recipes: `meta.yaml` 0.6.0 + sha256 (`aab95e4`); build-meta;
+   artifact deps verified; copied to `sibio_local/noarch`; indexed +
+   deployed; `pixi search` + fresh-env install verified 0.6.0.
 
 # Risks
 
 - Column renames break downstream consumers (wps_1012 uses qc-summary) —
   0.x breaking convention, called out in the release notes.
-- Depth-array cost per reference is O(seq_len), already paid by
-  `error.parquet`; `ref_summary` reuses the same helper, no new asymptotics.
 
-# Verification criteria
+# Verification criteria (all met)
 
-1. `pixi run -e dev test` green; lint + typecheck clean.
-2. `sam-tagger --version` → 0.6.0; tag `v0.6.0` release carries both
-   artifacts.
-3. `pixi search sam-tagger -c file:///bioproj/data/minio/sibio_local`
-   resolves 0.6.0; repodata deps unchanged in kind.
+1. Tests green (154); lint + typecheck clean.
+2. `sam-tagger --version` → 0.6.0; release `v0.6.0` carries both artifacts.
+3. sibio resolves 0.6.0 locally and remotely; fresh-env install runs and
+   reports 0.6.0.

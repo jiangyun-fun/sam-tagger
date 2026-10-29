@@ -1,0 +1,703 @@
+---
+title: "Release v0.6.0 — qc-summary schema extensions and error-stats ref_summary"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+---
+
+## feature
+
+### qc-summary gained ref_len, effective_len, and efficiency columns
+
+```
+level: high
+```
+
+#### reason
+
+Unit tests cover all three columns, including null cases, and two smoke
+runs against a real BAM confirmed the values. The evidence is in this
+report.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. `ref_len` mirrors the BAM-header `LN` for every reference.
+2. `effective_len` = `ref_len` − `tc_primer_start_len` − `tc_primer_end_len`.
+   It is null when the reference has no TC config row.
+3. `efficiency` = `on_target_rate^(1/effective_len)`. It is null when
+   `effective_len` is null or ≤ 0.
+
+Column order after the change:
+
+| Position | Column | Source |
+|---|---|---|
+| 1 | seq_name | header |
+| 2 | ref_len | header LN |
+| 3 | effective_len | ref_len − TC primers |
+| 4–6 | total/forward/reverse reads | FLAG tally |
+| 7, 9, 11 | forward_rate, fl_rate, on_target_rate | count/total |
+| 12 | efficiency | on_target_rate^(1/effective_len) |
+| 13–19 | ap_* buckets, error counts | AP/error tally |
+
+#### before
+
+The qc-summary table had no reference-length column, so consumers joined
+lengths back in by hand. There was no per-base on-target metric.
+
+#### after
+
+One row per reference now carries the header length, the primer-trimmed
+effective length, and the implied per-base on-target rate. References
+without a TC config row show null, not a wrong number.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_qc_summary.py::test_qc_summary_multi_ref` asserts
+  `effective_len` 12 (28−8−8), 16 (26−5−5), and null for the config-less
+  reference, plus `efficiency == 0.5**(1/12)`.
+- Smoke run (real CLI, 10 bp ref, tc primers 2+3): `effective_len == 5`,
+  `efficiency == 0.870551 == 0.5**(1/5)`.
+
+:::
+
+### error-stats emits a per-reference ref_summary parquet
+
+```
+level: high
+```
+
+#### reason
+
+A unit test pins both metrics against hand-derived depth arrays, checks
+the zero-read and partial-coverage cases, and asserts value parity with
+`error.parquet`'s rate columns. The full suite passes.
+
+#### description
+
+```
+type: [text]
+```
+
+1. New 8th output `{p}.ref_summary.parquet` (`--ref-summary-out`).
+2. `max_min_rate` = min depth / max depth over all reference positions,
+   on the same depth universe as `error.parquet`'s `total`. A zero-depth
+   base pins it at 0.0. No reads also gives 0.0.
+3. `max_error_rate` = max over positions of max(insertion_rate,
+   deletion_rate, mismatch_rate). It equals the worst per-position rate
+   in `error.parquet`.
+4. `--prefix` now writes 8 files; explicit form requires all 8
+   `--*-out` paths.
+
+#### before
+
+Depth evenness and the worst positional error rate had to be derived by
+re-aggregating `error.parquet` downstream, one position at a time.
+
+#### after
+
+One row per reference answers both questions directly. The value
+convention matches the existing rate columns, so the two sources agree
+by construction.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_stats.py::test_ref_summary_max_min_and_max_error_rate`:
+  depth `[4,3,3]` → `max_min_rate 0.75`, `max_error_rate 1/3`; zero-read
+  ref → `(0.0, 0.0)`; partial-coverage ref (depth `[1,1,0]`) →
+  `max_min_rate 0.0`; parity check against `error.parquet` rows.
+- Smoke run (uniform depth 2, one mismatch): `max_min_rate 1.0`,
+  `max_error_rate 0.5`, matching the `error.parquet` row
+  (`mismatch 1, total 2, mismatch_rate 0.5`).
+
+:::
+
+### subcommand help lists the output columns
+
+```
+level: high
+```
+
+#### reason
+
+All three help screens were captured verbatim after the change and render
+as intended.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `error-stats --help` shows a markdown table of all 8 outputs and their
+   columns.
+2. `qc-summary --help` lists every column plus the `effective_len` and
+   `efficiency` formulas.
+3. `pileup --help` states its column list; `--output` help points there.
+
+#### before
+
+The help named the output files but not their columns. Users opened the
+docs to learn the schema.
+
+#### after
+
+The schema is visible at the point of invocation. The error-stats table
+renders correctly because cyclopts auto-detects markdown tables.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `sam-tagger error-stats --help` output shows the 8-row table with
+  aligned columns (captured this session).
+- `sam-tagger qc-summary --help` lists all 20 columns and both formulas.
+
+:::
+
+## fix
+
+### usage.qmd error-stats output table was split by interleaved prose
+
+```
+level: high
+```
+
+#### reason
+
+The defect was visible in the source (table rows separated by three
+prose paragraphs) and the repaired table is in the committed file.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The `error` row sat above three paragraphs; the other six rows
+   followed below. Markdown rendered this as one 1-row table plus an
+   orphaned fragment.
+2. The table is now one 8-row block, followed by the prose.
+
+#### before
+
+Readers saw a broken table: one row, then prose, then stray rows that
+did not render as a table.
+
+#### after
+
+The full output table renders as one block, now with the eighth output.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/usage.qmd` lines 159–171 (before): row `error` at line 161,
+  remaining rows at 195–200, prose between.
+- After: single table `error` … `ref_summary`, then the prose paragraphs.
+
+:::
+
+## limitation
+
+### ref_summary depth metrics follow sam-tagger's own read universe
+
+```
+level: medium
+```
+
+#### reason
+
+The depth semantics are inherited from `error.parquet`'s `total` column
+and are documented there, but the exact samtools-equivalence conditions
+were verified for `total`, not re-verified for `ref_summary` this session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `max_min_rate` uses all mapped cs-carrying reads. It is not
+   region-gated.
+2. It equals a samtools-derived rate only under the conditions documented
+   for `error.parquet`'s `total` (no secondary/QC-fail/duplicate records,
+   every mapped read carries `cs`).
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py`, `_write_ref_summary_stats`
+  docstring and `_depth_array` reuse.
+- `docs/usage.qmd` "error-stats" section, `total` paragraph.
+
+:::
+
+## caveat
+
+### _pct → _rate is a breaking rename for qc-summary consumers
+
+```
+level: high
+```
+
+#### reason
+
+The rename changes output column names that downstream code reads by
+name; the wps_1012 workflow is a known consumer.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `forward_pct`, `fl_pct`, and `on_target_pct` no longer exist. Use
+   `forward_rate`, `fl_rate`, `on_target_rate`.
+2. The values did not change. They were already 0–1 fractions.
+3. The release notes carry the mapping verbatim.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Release notes `v0.6.0`, "Breaking changes" section (installed via
+  `gh release edit` this session).
+- Commit `3f5816c` `feat!: rename qc-summary _pct columns to _rate...`.
+
+:::
+
+## assumption
+
+### max_min_rate counts zero-depth positions in the minimum
+
+```
+level: medium
+```
+
+#### reason
+
+The user's example `[3,1,4,5] → 1/5` does not distinguish the two
+readings. The literal reading was implemented and stated in the reply;
+the user has not yet confirmed it.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Interpretation: min and max run over ALL reference positions, zeros
+   included. One uncovered base yields `max_min_rate = 0.0`.
+2. If the intent was "minimum over covered positions only", the change
+   is one line in `_write_ref_summary_stats`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### v0.6.0 is released, packaged, and resolvable from the sibio channel
+
+```
+level: high
+```
+
+#### reason
+
+Every stage was verified against the deployed artifact this session: the
+GitHub release, the channel index, and a fresh-env install.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. Release `v0.6.0` carries the wheel (38,165 B) and the sdist
+   (142,055 B, sha256 `88a8aa08…a16aa8`).
+2. `sam-tagger-0.6.0-py_0.conda` is deployed to sibio (noarch) with the
+   six expected run deps and no extras.
+3. A fresh pixi env resolved `sam-tagger >=0.6.0,<0.7` from the channel
+   and `sam-tagger --version` printed `0.6.0`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh release view v0.6.0 --json assets` → wheel + sdist.
+- `pixi search sam-tagger -c s3://conda/sibio` → `0.6.0 py_0`.
+- Artifact `info/index.json` depends: `cyclopts >=3.0, loguru >=0.7,
+  polars >=1.0, pydantic >=2.0, pysam >=0.22, python >=3.13`.
+- Fresh-env install + `--version` + `qc-summary --help` captured this
+  session.
+
+:::
+
+## recommendation
+
+### M: submit sam-tagger 0.6.0 to bioconda
+
+```
+level: medium
+```
+
+#### reason
+
+The meta.yaml is sha256-ready and the upload-to-bioconda skill is proven
+on two prior packages, but bioconda review timing is unverified for this
+recipe.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Use the conda-recipes `upload-to-bioconda` skill against
+   `recipes/sam-tagger/meta.yaml`.
+2. The recipe already builds clean under `pixi run build-meta`.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- conda-recipes commit `aab95e4` (0.6.0 + sha256) built successfully
+  this session.
+
+:::
+
+### L: keep using gh release edit for curated notes
+
+```
+level: medium
+```
+
+#### reason
+
+The workflow auto-creates releases on tag push; `create` raced it once on
+v0.5.0. This session used `edit` without issue, matching the carried
+recommendation.
+
+#### description
+
+```
+type: [text]
+```
+
+1. After the release workflow finishes, install curated notes with
+   `gh release edit <tag> --notes-file`.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh release edit v0.6.0 --notes-file /tmp/v060-notes.md` succeeded
+  this session.
+
+:::
+
+### L: run ruff format on changed files only
+
+```
+level: low
+```
+
+#### reason
+
+Carried forward: the repo is not format-clean under the current ruff, and
+blanket runs rewrite unrelated files.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Format only the files a change touched, never the whole tree.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: wps_1012 adopts v0.6.0
+
+```
+level: medium
+```
+
+#### reason
+
+The consumer workflow pins the env and reads `_pct` columns; the
+migration path is known but not yet scheduled.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Pin wps_1012 to sam-tagger 0.6.0.
+2. Rename its qc-summary `_pct` column reads to `_rate`.
+3. Replace the S37_1 explicit-flags workaround with `--prefix`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### cyclopts renders markdown tables in help without a help_format setting
+
+```
+level: medium
+```
+
+#### reason
+
+A two-app probe (default vs `help_format="markdown"`) produced identical
+table rendering; plain indented text collapsed its line breaks.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Default help rendering collapses single newlines in docstrings.
+2. Markdown tables render as tables in both modes.
+3. The docstrings therefore use a markdown table instead of an indented
+   block.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Probe run this session: `plain` and `md` apps both rendered the
+  2-row table identically.
+
+:::
+
+## process
+
+### reset the pre-addition bump commit and tag before the mid-task asks
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The version bump and `v0.6.0` tag were cut before the user's mid-task
+   additions (help readability, effective_len, efficiency) arrived.
+2. Because nothing was pushed, the tag was deleted and the bump commit
+   reset locally, the additions landed as their own commits, then the
+   bump and tag were re-cut.
+3. This kept the release content complete and the history one-change-per-
+   commit.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log --oneline -6` shows `3f5816c`, `742dc40`, `de18899`,
+  `98a3ec4`, `7ceb952`, `f053f8e` — each a single logical change, tag on
+  the last.
+
+:::
+
+### hand-derived depth array in the first ref_summary test was wrong
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first version of the ref_summary test asserted depths from a
+   hand-computed array that ignored coverage from two cs ops.
+2. The implementation was correct; the test expectations were not
+   (observed `0.75, 1/3` vs asserted `0.25, 1.0`).
+3. The better action: recompute the depth array from the difference-array
+   semantics op by op before writing expectations. Done; the corrected
+   test passes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Failure output: `assert (0.75, 0.3333...) == (0.25 ± …, 1.0 ± …)`.
+
+:::
+
+## change
+
+### v0.6.0 code, tests, docs, release, and packaging
+
+```
+level: high
+```
+
+#### reason
+
+All mutations are git-committed facts, verifiable from the two repos'
+logs.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb | Path (repo) |
+|---|---|
+| updated | `src/sam_tagger/cli.py`, `lib.py`, `__init__.py` |
+| updated | `src/sam_tagger/stats/qc_summary.py`, `stats/error_stats.py` |
+| updated | `src/sam_tagger/parquet_writer.py` |
+| updated | `tests/test_qc_summary.py`, `test_stats.py`, `test_validation.py` |
+| updated | `README.md`, `docs/usage.qmd`, `pyproject.toml`, `pixi.toml` |
+| created | `docs/plans/20261029-155934_qc-reflen-rates-ref-summary.plan.qmd` |
+| created | `docs/plans/20261029-161500_release-v0.6.0.report.qmd` |
+| updated | `docs/misc/next_and_recommendation.qmd`, `docs/misc/requirements_audit.qmd` |
+| updated | conda-recipes `recipes/sam-tagger/meta.yaml` + its audit |
+
+1. Git sam-tagger: `main 3f5816c..f053f8e` (5 commits) + tag `v0.6.0`
+   pushed; release workflow run `40842520942` success.
+2. Git conda-recipes: `aab95e4` (recipe bump), `e3d0822` (audit mirror).
+3. Packages: `sam-tagger-0.6.0-py_0.conda` built (conda-recipes pixi
+   workspace) and deployed to the sibio channel via
+   `/bioproj/data/minio` (`pixi run index`, `pixi run upload`).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log --oneline -6` (sam-tagger) and `-2` (conda-recipes).
+- `gh run view 40842520942` → success.
+
+:::
+
+## other
+
+None

@@ -644,3 +644,34 @@ Fix the two defects diagnosed in the wps_1012 refalign workflow: FL never counts
 Files: updated src/sam_tagger/processing.py, src/sam_tagger/stats/error_stats.py, tests/{test_processing,test_stats,test_qc_summary}.py, pyproject.toml, pixi.toml, src/sam_tagger/__init__.py; created docs/plans/20261023-141109 + 20261023-141920 pair; updated docs/misc/{requirements_audit,next_and_recommendation}.qmd.
 Packages: none. Environments: none (dev env used as-is).
 Git: two fix commits + docs commit + release commit on main; tag v0.5.1 pushed.
+
+## Release sam-tagger v0.6.0 with qc-summary and error-stats schema extensions
+
+```
+level: high
+date: 2026-10-29
+cross-repo: sam-tagger, conda-recipes
+```
+
+### description
+
+Extend both stat subcommands, make CLI help list output columns, release
+v0.6.0, update the conda recipe, and deploy the package to the sibio channel.
+
+### result
+
+1. Implemented qc-summary `ref_len`, `effective_len` (`ref_len − tc primers`), and `efficiency` (`on_target_rate^(1/effective_len)`).
+2. Renamed all `_pct` columns to `_rate` (values were already 0–1 fractions).
+3. Implemented the error-stats 8th output `{p}.ref_summary.parquet` (`max_min_rate`, `max_error_rate`).
+4. Listed output columns in every stat subcommand's `--help` (markdown table for error-stats).
+5. Released v0.6.0 (tag push; workflow attached wheel + sdist; curated notes installed) and deployed `sam-tagger-0.6.0-py_0.conda` to sibio (conda-recipes carries the mirror entry).
+
+### change
+
+Files: updated `src/sam_tagger/{cli,lib,__init__}.py`, `stats/qc_summary.py`,
+`stats/error_stats.py`, `parquet_writer.py`, `tests/{test_qc_summary,test_stats,test_validation}.py`,
+`README.md`, `docs/usage.qmd`, `pyproject.toml`, `pixi.toml`, plan/report
+pair, `docs/misc/next_and_recommendation.qmd`, this entry. Packages:
+`sam-tagger-0.6.0-py_0.conda` deployed to the sibio channel (noarch). Git:
+main `3f5816c..f053f8e` (5 commits) + tag `v0.6.0` pushed; conda-recipes
+`aab95e4`, `e3d0822`.
