@@ -2,7 +2,7 @@
 
 Four focused
 subcommands: ``annotate`` (add tags + FASTQ extraction + tag stats),
-``error-stats`` (7-file cs-tag error analysis), ``pileup`` (bcftools
+``error-stats`` (8-file cs-tag error analysis), ``pileup`` (bcftools
 mpileup-like per-position statistics), and ``qc-summary`` (one per-reference QC
 row).
 

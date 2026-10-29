@@ -1,7 +1,7 @@
 """CLI for sam-tagger: four focused subcommands.
 
 ``annotate``     — BAM → tagged BAM (+ optional FASTQ, optional tag stats).
-``error-stats``  — BAM → 7-file cs-tag error analysis (read-only).
+``error-stats``  — BAM → 8-file cs-tag error analysis (read-only).
 ``pileup``       — BAM → per-position pileup statistics (read-only).
 ``qc-summary``   — BAM → one per-reference QC summary Parquet (FL/TC/AP/error).
 
@@ -184,7 +184,7 @@ class ErrorStatsArgs:
         Path | None,
         Parameter(
             group="Output",
-            help="Prefix for all 7 outputs ({p}.error.parquet, …). Exclusive with --*-out flags.",
+            help="Prefix for all 8 outputs ({p}.error.parquet, …). Exclusive with --*-out flags.",
         ),
     ] = None
     error_out: Annotated[
@@ -208,6 +208,13 @@ class ErrorStatsArgs:
     single_deletion_out: Annotated[
         Path | None, Parameter(group="Output", help="Single-deletion counts Parquet.")
     ] = None
+    ref_summary_out: Annotated[
+        Path | None,
+        Parameter(
+            group="Output",
+            help="Per-reference summary Parquet (max_min_rate, max_error_rate).",
+        ),
+    ] = None
 
     verbose: Annotated[
         int, Parameter(alias="-v", count=True, group="Misc", help="Increase verbosity.")
@@ -216,7 +223,7 @@ class ErrorStatsArgs:
 
 @app.command
 def error_stats(args: Annotated[ErrorStatsArgs, Parameter(name="")]) -> None:
-    """Generate 7 cs-tag error-statistics Parquet files (read-only, no BAM output)."""
+    """Generate 8 cs-tag error-statistics Parquet files (read-only, no BAM output)."""
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_error_stats
 

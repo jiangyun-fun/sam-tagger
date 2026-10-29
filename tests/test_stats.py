@@ -133,6 +133,7 @@ def _err_paths(tmp_path: Path) -> ErrorStatsOutputPaths:
         per_read=tmp_path / "per_read.parquet",
         per_base=tmp_path / "per_base.parquet",
         single_deletion=tmp_path / "single_deletion.parquet",
+        ref_summary=tmp_path / "ref_summary.parquet",
     )
 
 
@@ -209,7 +210,7 @@ def test_error_stats_unknown_ref_skipped(tmp_path: Path) -> None:
     assert col._stats_by_ref == {}  # nothing tallied
 
 
-def test_error_stats_write_all_seven(tmp_path: Path) -> None:
+def test_error_stats_write_all_eight(tmp_path: Path) -> None:
     params = {"ref1": ErrorParams(seq_len=100, inner_region_start=10, inner_region_end=90)}
     paths = _err_paths(tmp_path)
     col = ErrorStatsCollector(params, paths)
@@ -223,6 +224,7 @@ def test_error_stats_write_all_seven(tmp_path: Path) -> None:
         paths.per_read,
         paths.per_base,
         paths.single_deletion,
+        paths.ref_summary,
     ):
         assert p.exists()
     df = pl.read_parquet(paths.error)
@@ -266,6 +268,7 @@ def test_error_paths_from_prefix(tmp_path: Path) -> None:
     assert p.error == tmp_path / "stats.error.parquet"
     assert p.per_base == tmp_path / "stats.per_base.parquet"
     assert p.single_deletion == tmp_path / "stats.single_deletion.parquet"
+    assert p.ref_summary == tmp_path / "stats.ref_summary.parquet"
 
 
 def test_error_paths_from_prefix_with_suffix(tmp_path: Path) -> None:
@@ -299,16 +302,59 @@ def test_error_paths_from_explicit(tmp_path: Path) -> None:
         per_read_out=tmp_path / "pr.parquet",
         per_base_out=tmp_path / "pb.parquet",
         single_deletion_out=tmp_path / "sd.parquet",
+        ref_summary_out=tmp_path / "rs.parquet",
     )
     p = ErrorStatsOutputPaths.from_args(args)
     assert p.error == tmp_path / "e.parquet" and p.single_deletion == tmp_path / "sd.parquet"
+    assert p.ref_summary == tmp_path / "rs.parquet"
 
 
 def test_error_paths_from_args_missing_raises(tmp_path: Path) -> None:
-    # neither prefix nor all 7 explicit -> ValueError
+    # neither prefix nor all 8 explicit -> ValueError
     args = ErrorStatsArgs(input_bam=Path("in.bam"), config=Path("c.toml"))
     with pytest.raises(ValueError):
         ErrorStatsOutputPaths.from_args(args)
+
+
+def test_ref_summary_max_min_and_max_error_rate(tmp_path: Path) -> None:
+    # ref1, seq_len 3, inner [0,3): reads accumulate depth [4,3,3] —
+    #   r1 ":3"      covers 0,1,2
+    #   r2 ":1"      covers 0
+    #   r3 "*ac:2"   covers 0 (mismatch, 1-based 1), 1, 2
+    #   r4 ":1*ac:1" covers 0, 1 (mismatch, 1-based 2), 2
+    # max_min_rate = min/max = 3/4; max_error_rate: r4's mismatch sits on
+    # depth-3 position 2 -> 1/3 (r3's mismatch on depth-4 position 1 -> 1/4).
+    params = {
+        "ref1": ErrorParams(seq_len=3, inner_region_start=0, inner_region_end=3),
+        "ref2": ErrorParams(seq_len=3, inner_region_start=0, inner_region_end=3),
+        "ref3": ErrorParams(seq_len=3, inner_region_start=0, inner_region_end=3),
+    }
+    col = ErrorStatsCollector(params, _err_paths(tmp_path))
+    col.tally_from_parsed(parse_cs_tag(":3"), 0, "ref1", "r1")
+    col.tally_from_parsed(parse_cs_tag(":1"), 0, "ref1", "r2")
+    col.tally_from_parsed(parse_cs_tag("*ac:2"), 0, "ref1", "r3")
+    col.tally_from_parsed(parse_cs_tag(":1*ac:1"), 0, "ref1", "r4")
+    # ref2: no reads -> both metrics 0.0
+    # ref3: one read covers only [0,2) -> depth [1,1,0], a zero-depth base
+    # pins max_min_rate at 0.0 (min over ALL positions, zeros included)
+    col.tally_from_parsed(parse_cs_tag(":2"), 0, "ref3", "r5")
+    col.write_results()
+
+    df = pl.read_parquet(tmp_path / "ref_summary.parquet")
+    assert df.columns == ["seq_name", "max_min_rate", "max_error_rate"]
+    rows = {r["seq_name"]: (r["max_min_rate"], r["max_error_rate"]) for r in df.iter_rows(named=True)}
+    assert rows["ref1"] == (pytest.approx(3 / 4), pytest.approx(1 / 3))
+    assert rows["ref2"] == (0.0, 0.0)
+    assert rows["ref3"] == (0.0, 0.0)
+
+    # value parity with error.parquet: max_error_rate equals the max
+    # insertion/deletion/mismatch rate over its per-position rows
+    err = pl.read_parquet(tmp_path / "error.parquet").filter(pl.col("seq_name") == "ref1")
+    worst = max(
+        max(r["insertion_rate"], r["deletion_rate"], r["mismatch_rate"])
+        for r in err.iter_rows(named=True)
+    )
+    assert worst == pytest.approx(1 / 3)
 
 
 # --------------------------------------------------------------------------

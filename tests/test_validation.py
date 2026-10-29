@@ -93,5 +93,5 @@ def test_error_stats_neither_prefix_nor_explicit_raises(tmp_path) -> None:
     setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
     assert setup.config_path is not None
     # error config is fine, but no prefix and no explicit out paths -> from_args raises
-    with pytest.raises(ValueError, match="prefix|seven"):  # message mentions prefix / seven paths
+    with pytest.raises(ValueError, match="prefix|eight"):  # message mentions prefix / eight paths
         run_error_stats(ErrorStatsArgs(input_bam=setup.input_bam, config=setup.config_path))

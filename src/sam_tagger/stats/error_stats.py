@@ -1,8 +1,8 @@
-"""Error statistics collection (7-file cs-tag error analysis).
+"""Error statistics collection (8-file cs-tag error analysis).
 
 Tally/write logic is unchanged from the tested port; only construction was
 decoupled — ``ErrorStatsOutputPaths.from_args`` takes an ``ErrorStatsArgs``
-(prefix or 7 explicit paths) instead of the old mega-``Cli``.
+(prefix or 8 explicit paths) instead of the old mega-``Cli``.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from sam_tagger.config import ErrorParams
 from sam_tagger.parquet_writer import (
     MismatchMatrixStats,
     PositionalErrorStats,
+    RefSummaryStats,
     SingleDeletionStats,
     TypedStats,
 )
@@ -76,10 +77,11 @@ class ErrorStatsOutputPaths:
     per_read: Path
     per_base: Path
     single_deletion: Path
+    ref_summary: Path
 
     @classmethod
     def from_args(cls, args: ErrorStatsArgs) -> ErrorStatsOutputPaths:
-        """Resolve the 7 output paths from either --prefix or 7 explicit paths."""
+        """Resolve the 8 output paths from either --prefix or 8 explicit paths."""
         if args.prefix is not None:
             prefix = args.prefix
 
@@ -98,6 +100,7 @@ class ErrorStatsOutputPaths:
                 per_read=_p("per_read.parquet"),
                 per_base=_p("per_base.parquet"),
                 single_deletion=_p("single_deletion.parquet"),
+                ref_summary=_p("ref_summary.parquet"),
             )
         if all(
             [
@@ -108,6 +111,7 @@ class ErrorStatsOutputPaths:
                 args.per_read_out,
                 args.per_base_out,
                 args.single_deletion_out,
+                args.ref_summary_out,
             ]
         ):
             return cls(
@@ -118,11 +122,13 @@ class ErrorStatsOutputPaths:
                 per_read=args.per_read_out,  # type: ignore[arg-type]
                 per_base=args.per_base_out,  # type: ignore[arg-type]
                 single_deletion=args.single_deletion_out,  # type: ignore[arg-type]
+                ref_summary=args.ref_summary_out,  # type: ignore[arg-type]
             )
         raise ValueError(
-            "error-stats requires either --prefix or all seven output paths "
+            "error-stats requires either --prefix or all eight output paths "
             "(--error-out, --mismatch-out, --insertion-out, --deletion-out, "
-            "--per-read-out, --per-base-out, --single-deletion-out)."
+            "--per-read-out, --per-base-out, --single-deletion-out, "
+            "--ref-summary-out)."
         )
 
 
@@ -386,6 +392,7 @@ class ErrorStatsCollector:
         self._write_per_read_stats(paths)
         self._write_per_base_stats(paths)
         self._write_single_deletion_stats(paths)
+        self._write_ref_summary_stats(paths)
         logger.info("All error statistics successfully written.")
 
     def _write_error_stats(self, paths: ErrorStatsOutputPaths) -> None:
@@ -448,6 +455,42 @@ class ErrorStatsCollector:
                 counts = ref_stats.positional_errors.get(i, _PositionalErrorCounts())
                 single_del_stats.add(seq_name, i, counts.deletions, counts.single_deletions)
         single_del_stats.write_parquet(paths.single_deletion)
+
+    def _write_ref_summary_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        """One row per reference: depth evenness + worst positional error rate.
+
+        ``max_min_rate`` = min depth / max depth over ALL reference positions
+        (the ``error.parquet`` ``total`` depth universe, zeros included — an
+        uncovered base pins it at 0.0; 0.0 too when no read covers the ref).
+        ``max_error_rate`` = max over positions of
+        max(insertion_rate, deletion_rate, mismatch_rate) — value-identical
+        to the per-position ``*_rate`` columns of ``error.parquet``.
+        """
+        logger.info("Writing per-reference summary to {}", paths.ref_summary)
+        ref_summary = RefSummaryStats()
+        sorted_refs = sorted(self._error_params_map.keys())
+        default = _PerRefErrorStats()
+        for seq_name in sorted_refs:
+            ref_stats = self._stats_by_ref.get(seq_name, default)
+            seq_len = self._error_params_map[seq_name].seq_len
+            depth = self._depth_array(ref_stats, seq_len)
+            max_depth = max(depth, default=0)
+            min_depth = min(depth, default=0)
+            max_min_rate = (min_depth / max_depth) if max_depth else 0.0
+            max_error_rate = 0.0
+            for pos, counts in ref_stats.positional_errors.items():
+                if not 1 <= pos <= seq_len:
+                    continue
+                total = depth[pos - 1]
+                worst = max(
+                    (counts.insertions / total) if total else 0.0,
+                    (counts.deletions / total) if total else 0.0,
+                    (counts.mismatches / total) if total else 0.0,
+                )
+                if worst > max_error_rate:
+                    max_error_rate = worst
+            ref_summary.add(seq_name, max_min_rate, max_error_rate)
+        ref_summary.write_parquet(paths.ref_summary)
 
     def _write_mismatch_stats(self, paths: ErrorStatsOutputPaths) -> None:
         logger.info("Writing mismatch matrix to {}", paths.mismatch)

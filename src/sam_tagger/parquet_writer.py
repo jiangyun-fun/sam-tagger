@@ -218,6 +218,34 @@ class DistributionStats:
 
 
 @dataclass
+class RefSummaryStats:
+    """3-column per-reference summary: (seq_name, max_min_rate, max_error_rate).
+
+    ``max_min_rate`` = min depth / max depth over the reference positions
+    (0.0 when max depth is 0). ``max_error_rate`` = max over positions of
+    max(insertion_rate, deletion_rate, mismatch_rate), 0.0 when no errors.
+    """
+
+    data: list[tuple[str, float, float]] = field(default_factory=list)
+
+    def add(self, seq_name: str, max_min_rate: float, max_error_rate: float) -> None:
+        self.data.append((seq_name, max_min_rate, max_error_rate))
+
+    def to_dataframe(self) -> pl.DataFrame:
+        return pl.DataFrame(
+            {
+                "seq_name": [n for n, _, _ in self.data],
+                "max_min_rate": [r for _, r, _ in self.data],
+                "max_error_rate": [r for _, _, r in self.data],
+            },
+            schema={"seq_name": pl.Utf8, "max_min_rate": pl.Float64, "max_error_rate": pl.Float64},
+        )
+
+    def write_parquet(self, path: Path) -> None:
+        write_df_to_parquet(self.to_dataframe(), path)
+
+
+@dataclass
 class MismatchMatrixStats:
     """6-column statistics: (seq_name, ref_base, A, T, C, G)."""
 
