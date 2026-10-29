@@ -675,3 +675,36 @@ pair, `docs/misc/next_and_recommendation.qmd`, this entry. Packages:
 `sam-tagger-0.6.0-py_0.conda` deployed to the sibio channel (noarch). Git:
 main `3f5816c..f053f8e` (5 commits) + tag `v0.6.0` pushed; conda-recipes
 `aab95e4`, `e3d0822`.
+
+## Release sam-tagger v0.7.0 with reshaped error-stats tables and required fasta
+
+```
+level: high
+date: 2026-10-29
+cross-repo: sam-tagger, conda-recipes
+```
+
+### description
+
+Reshape the five error-stats summary tables (wide per-reference / long
+mismatch), make --fasta required, add the strand-split adf/adr counts and
+the row-normalized norm_rate to the mismatch matrix, then release v0.7.0
+and deploy to sibio. Design was refined across a four-turn dialogue
+(normalized rate proposal -> diagonal match rows -> required fasta ->
+adf/adr split) with the release halted mid-flight and the tag re-cut.
+
+### result
+
+1. Implemented deletion/insertion per-base composition tables, per_base/per_read wide tables, and the 16-row mismatch matrix (adf/adr, rate, norm_rate; diagonal = strand-split match observations via O(1)-per-op prefix counts).
+2. Made --fasta required for error-stats; smoothed_deletion always populated via the CLI.
+3. Added the required is_reverse parameter to tally_from_parsed (library API break).
+4. Released v0.7.0 (stale tag deleted, re-cut, workflow success, curated notes) and deployed sam-tagger-0.7.0-py_0.conda to sibio (conda-recipes carries the mirror entry).
+
+### change
+
+Files: updated `src/sam_tagger/{cli,lib}.py`, `stats/error_stats.py`,
+`parquet_writer.py`, `tests/*` (fixtures for required fasta; strand arg),
+`README.md`, `docs/usage.qmd`, plan/report pair, `docs/misc/` files, this
+entry. Packages: `sam-tagger-0.7.0-py_0.conda` deployed to the sibio
+channel (noarch). Git: main `1ade8e1..cecfb73` (4 commits) + tag `v0.7.0`
+deleted and re-cut at `cecfb73`; conda-recipes `06cfc69`.

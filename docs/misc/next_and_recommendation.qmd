@@ -5,13 +5,13 @@ author: "Yun Jiang"
 
 ## next
 
-1. M: wps_1012 adopts v0.6.0 (env pin): migrate its qc-summary `_pct` column
-   reads to `_rate`, and simplify the S37_1 explicit-flags workaround to
-   `--prefix`.
+1. M: wps_1012 adopts v0.7.x (env pin): add error-stats `--fasta`, migrate
+   qc-summary `_pct` column reads to `_rate`, and switch the S37_1
+   explicit-flags workaround to `--prefix`.
 
 ## recommendation
 
-1. M: submit sam-tagger 0.6.0 to bioconda — the meta.yaml is sha256-ready;
+1. M: submit sam-tagger 0.7.0 to bioconda — the meta.yaml is sha256-ready;
    use the upload-to-bioconda skill.
 2. L: on future releases, expect the release workflow to auto-create the
    GitHub release on tag push — use `gh release edit` for curated notes

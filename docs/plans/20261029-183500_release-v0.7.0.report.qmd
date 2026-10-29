@@ -1,0 +1,673 @@
+---
+title: "Release v0.7.0 — reshaped error-stats tables, required fasta, adf/adr + norm_rate"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+---
+
+## feature
+
+### five error-stats summary tables reshaped to one-row-per-reference
+
+```
+level: high
+```
+
+#### reason
+
+A value-level test pins every schema and hand-computed expectations for all
+five tables, and a CLI smoke run reproduced the same numbers on a real BAM.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. `deletion`/`insertion`: `seq_name, total, {del,ins}_a.._t` plus one rate
+   per base, normalized inside the sequence.
+2. `per_base`/`per_read`: `seq_name, total, insertion, deletion, mismatch`
+   plus one rate per count (the old `substitution` label became `mismatch`).
+3. `mismatch`: 16-row substitution/accuracy matrix (below).
+4. `error`, `single_deletion`, `ref_summary` outputs are unchanged.
+
+| Table | Rows per ref | Rate denominator |
+|---|---|---|
+| deletion | 1 | per-seq event total |
+| insertion | 1 | per-seq event total |
+| per_base | 1 | aligned bases |
+| per_read | 1 | tallied reads |
+| mismatch | 16 | row total (see item) |
+
+#### before
+
+All five tables were long-format `(seq_name, type, count)` or a 4-column
+matrix; consumers re-aggregated them downstream to compare references.
+
+#### after
+
+One row per reference answers each QC question directly; rates use the
+existing 0.0-on-zero-denominator convention.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_stats.py::test_error_stats_summary_table_schemas` asserts all
+  five column sets and values from the hand-computed read
+  `:4*ac+gt-cg:2` over `ACGTACGTAC`.
+- 160 tests, ruff, and pyright green this session.
+
+:::
+
+### mismatch table carries adf/adr, match diagonal, and norm_rate
+
+```
+level: high
+```
+
+#### reason
+
+The strand test pins the split with balanced and asymmetric substitutions;
+the no-accessor test pins the null behavior; the smoke run showed adf/adr
+values matching hand computation on a real forward+reverse pair.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `adf`/`adr` split each cell's count by FLAG 0x10 — the same vocabulary
+   as `pileup`, so a strand-balanced substitution keeps `adf ≈ adr` while
+   an artifact does not.
+2. The `ref == alt` diagonal carries strand-split inner-region match
+   observations (per-reference prefix counts: O(1) per `:` op, not a
+   per-base loop).
+3. `rate = (adf+adr) / seq mismatch total` (null on the diagonal);
+   `norm_rate = (adf+adr) / row total` — the conditional
+   P(read base | ref base) with the reference-composition exposure divided
+   out (the `AAACGT` motivation).
+4. N read-base mismatches count in the row total without a row.
+
+#### before
+
+The table was a 4x4 matrix of event counts; composition bias favored
+abundant reference bases, and no strand or match information existed.
+
+#### after
+
+The table is a complete per-amplicon substitution/accuracy matrix; each
+row's `norm_rate` values sum to at most 1, and the diagonal reads as
+per-base accuracy.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_stats.py::test_error_stats_mismatch_strand_split`: A->T
+  `(adf 1, adr 1)`, A->G `(1, 0)`, diagonal A->A `(4, 2)` with
+  `norm_rate 2/3`.
+- Smoke run this session: forward `:4*ac+gt-cg:2` + reverse `:4*ac:5` →
+  A->C `(1, 1)`, A->A diagonal `(2, 2)`, rate null on the diagonal.
+
+:::
+
+### error-stats requires --fasta
+
+```
+level: high
+```
+
+#### reason
+
+The CLI help shows FASTA as required (verified in the fresh-env install),
+all fixture-updated tests pass, and the release notes state the migration.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `ErrorStatsArgs.fasta` is non-optional; `run_error_stats` opens the
+   FastaFile unconditionally.
+2. `smoothed_deletion` is always populated via the CLI; the null branch
+   remains only for library users constructing the collector without a
+   reference accessor.
+3. qc-summary and pileup fasta options are unchanged.
+
+#### before
+
+A fasta-less run produced three nullable behaviors (smoothed_deletion, and
+would have produced null diagonals and norm_rates); consumers had to know
+which mode produced a file.
+
+#### after
+
+Every CLI-produced file is fully populated; the reference is a required
+input, matching the fail-fast default.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Fresh-env `sam-tagger error-stats --help` (deployed package) shows
+  `INPUT-BAM CONFIG FASTA` in the usage line.
+- `tests/test_validation.py` error-config tests now pass fasta fixtures.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### norm_rate corrects composition bias, not position-level hotspots
+
+```
+level: medium
+```
+
+#### reason
+
+The row-total conditioning is exact for the abundance question by
+construction; the hotspot caveat follows from the tally design (per-position
+error clustering is visible only in error.parquet), not from a measurement.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `norm_rate` removes the first-order reference-composition bias.
+2. Clustered errors (homopolymers, strand gradients) still skew per-base
+   comparisons; per-position evidence lives in `error.parquet` and
+   `pileup`.
+3. The adf/adr aggregate cannot locate a strand bias to a position —
+   `pileup`'s per-position adf/adr covers that.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/usage.qmd` error-stats section documents the row-total semantics
+  and the N-in-denominator convention.
+
+:::
+
+## caveat
+
+### v0.7.0 is breaking for scripts and library callers
+
+```
+level: high
+```
+
+#### reason
+
+The renames, the required flag, and the signature change are all verified
+in this session's work; wps_1012 is a known consumer that has not migrated.
+
+#### description
+
+```
+type: [text]
+```
+
+1. qc-summary `_pct` columns are gone (`_rate` since v0.6.0).
+2. error-stats requires `--fasta`; five output schemas changed.
+3. `tally_from_parsed` gained a required `is_reverse` parameter.
+4. The release notes carry the full migration list.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Release `v0.7.0` notes (installed via `gh release edit` this session).
+- Commits `1ade8e1`, `b5b1de8`.
+
+:::
+
+### requiring fasta does not verify it is the right fasta
+
+```
+level: medium
+```
+
+#### reason
+
+The warn-once disagreement path predates this change and remains the only
+cross-check between the fasta and the cs-deleted bases.
+
+#### description
+
+```
+type: [text]
+```
+
+1. A mismatched reference silently shifts match counts and norm_rate.
+2. The existing warning (fasta base vs cs-deleted base) fires once per run;
+  it does not validate matched positions at all.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/stats/error_stats.py` `_smooth_deletion` warning branch.
+
+:::
+
+## assumption
+
+### strand balance indicates true substitutions
+
+```
+level: low
+```
+
+#### reason
+
+The adf/adr interpretation rests on PCR mixing strands; this is standard
+variant-calling practice, but this repo's own data has not been used to
+validate the expected balance distribution.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Reading `adf ≈ adr` as "true substitution" assumes strand-balanced
+   amplification.
+2. The test to confirm or refute: compare adf/adr splits against known
+   synthetic variants in an ecsngsqc run.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+### v0.7.0 is released, packaged, and resolvable from the sibio channel
+
+```
+level: high
+```
+
+#### reason
+
+Each stage was verified against the deployed artifact this session: the
+re-cut release, the channel index, and a pinned fresh-env install.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. The stale v0.7.0 tag/release (built from the halted first cut) was
+   deleted; the re-cut release carries the wheel and sdist
+   (sha256 `cc2d1b4f…a70cb`).
+2. `sam-tagger-0.7.0-py_0.conda` is on sibio with the six expected deps.
+3. A fresh env pinned `sam-tagger==0.7.0`; `--version` printed 0.7.0 and
+   the shipped help shows the new schema.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh run view 40857131624` → success; release assets verified.
+- `pixi search sam-tagger -c s3://conda/sibio` → `0.7.0 py_0`.
+- Artifact `info/index.json` depends unchanged from 0.6.0.
+
+:::
+
+## recommendation
+
+### M: submit sam-tagger 0.7.0 to bioconda
+
+```
+level: medium
+```
+
+#### reason
+
+The meta.yaml is sha256-ready and builds clean; bioconda review timing for
+this recipe is unverified.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Use the conda-recipes `upload-to-bioconda` skill against
+   `recipes/sam-tagger/meta.yaml`.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- conda-recipes commit `06cfc69` built and deployed successfully this
+  session.
+
+:::
+
+### L: keep using gh release edit for curated notes
+
+```
+level: medium
+```
+
+#### reason
+
+Used on v0.6.0 and v0.7.0 without issue; matches the carried convention.
+
+#### description
+
+```
+type: [text]
+```
+
+1. After the release workflow finishes, install curated notes with
+   `gh release edit <tag> --notes-file`.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh release edit v0.7.0 --notes-file /tmp/v070-notes.md` succeeded this
+  session.
+
+:::
+
+### L: run ruff format on changed files only
+
+```
+level: low
+```
+
+#### reason
+
+Carried forward: blanket runs rewrite unrelated files in this repo.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Format only the files a change touched.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: wps_1012 adopts v0.7.x
+
+```
+level: medium
+```
+
+#### reason
+
+The consumer pipeline pins the env and reads renamed columns; the migration
+path is enumerated but not scheduled.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Pin wps_1012 to sam-tagger 0.7.x.
+2. Add `--fasta` to its error-stats step.
+3. Rename qc-summary `_pct` reads to `_rate`; switch S37_1 to `--prefix`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### cyclopts renders a required flag in the usage line
+
+```
+level: medium
+```
+
+#### reason
+
+Observed verbatim in the deployed package's help output this session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. With `fasta: Path` (no default), the usage line reads
+   `sam-tagger error-stats INPUT-BAM CONFIG FASTA [ARGS]` while the flag
+   form `--fasta` still works.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Fresh-env `sam-tagger error-stats --help` output captured this session.
+
+:::
+
+## process
+
+### halted the release mid-flight and re-cut the tag after the design dialogue
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The user stopped the v0.7.0 release after the tag push; four design
+   turns followed (norm_rate, diagonal matches, required fasta, adf/adr).
+2. The stale tag and its auto-created release were deleted, the work
+   landed as two commits, and the tag was re-cut at the final commit.
+3. This kept the released 0.7.0 artifact identical to the final spec —
+   no version was shipped twice with different content.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh release delete v0.7.0` + tag delete/re-create in this session's
+  history; final tag at `cecfb73`.
+
+:::
+
+### bulk text substitution broke test files twice
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. A scripted insertion of `assert setup.fasta_path is not None` after
+   every config assert landed at wrong indentation inside a nested block
+   and hit tests that pass no fasta.
+2. The suite caught both (IndentationError, then a None assert), but each
+   cost a repair round.
+3. The better action: per-site Edit calls with the surrounding context,
+   or a scoped script keyed on the exact call sites — not a file-wide
+   pattern replace.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `IndentationError` at `tests/test_integration.py` and the
+  `test_qc_summary_cli` None failure, both this session.
+
+:::
+
+## change
+
+### v0.7.0 code, tests, docs, release, and packaging
+
+```
+level: high
+```
+
+#### reason
+
+All mutations are git-committed facts verifiable from the two repos' logs.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb | Path (repo) |
+|---|---|
+| updated | sam-tagger `src/sam_tagger/{cli,lib}.py` |
+| updated | `stats/error_stats.py`, `parquet_writer.py` |
+| updated | `tests/{_helpers,test_stats,test_parquet_writer,test_validation,test_complex,test_integration,test_qc_summary,test_cli}.py` |
+| updated | `README.md`, `docs/usage.qmd` |
+| rewritten | `docs/plans/20261029-174019_error-stats-wide-tables.plan.qmd` |
+| created | this report; `docs/misc/` audit + rolling updates |
+| updated | conda-recipes `recipes/sam-tagger/meta.yaml` + audit mirror |
+
+1. Git sam-tagger: `main 1ade8e1..cecfb73` plus this docs commit; tag
+   `v0.7.0` deleted and re-cut at `cecfb73`; release workflow run
+   `40857131624` success.
+2. Git conda-recipes: `06cfc69` (recipe 0.7.0 + audit mirror).
+3. Packages: `sam-tagger-0.7.0-py_0.conda` built (conda-recipes pixi
+   workspace) and deployed to sibio (noarch) via `/bioproj/data/minio`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log --oneline` both repos; `gh run view 40857131624`.
+
+:::
+
+## other
+
+None
