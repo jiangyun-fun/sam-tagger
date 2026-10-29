@@ -174,12 +174,12 @@ class ErrorStatsArgs:
     input_bam: Annotated[Path, Parameter(alias="-i", help="Input BAM (must carry cs tags).")]
     config: Annotated[Path, Parameter(help="CSV config with per-ref error_primer_*_len.")]
     fasta: Annotated[
-        Path | None,
+        Path,
         Parameter(
-            help="Indexed reference FASTA (samtools faidx). Enables the smoothed_deletion "
-            "column; without it the column is null.",
+            help="Indexed reference FASTA (samtools faidx) — required; the same "
+            "reference the BAM was aligned to.",
         ),
-    ] = None
+    ]
     prefix: Annotated[
         Path | None,
         Parameter(
@@ -232,7 +232,9 @@ def error_stats(args: Annotated[ErrorStatsArgs, Parameter(name="")]) -> None:
     |--------------------------|----------------------------------------------------------------|
     | `error`                  | seq_name, position, insertion, deletion, smoothed_deletion,    |
     |                          | mismatch, to_a, to_c, to_g, to_t, total, + one rate per count  |
-    | `mismatch`               | seq_name, ref, alt, count, rate (count / seq mismatch total)   |
+    | `mismatch`               | seq_name, ref, alt, adf, adr (fwd/rev counts, FLAG 0x10),     |
+    |                          | rate (count / seq mismatch total), norm_rate (count / row     |
+    |                          | total — P(read base / ref base))                              |
     | `insertion`              | seq_name, total, ins_a..ins_t, + one rate per base             |
     | `deletion`               | seq_name, total, del_a..del_t, + one rate per base             |
     | `per_read`               | seq_name, total, insertion, deletion, mismatch, + one rate     |

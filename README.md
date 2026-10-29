@@ -17,7 +17,7 @@ they're equally usable standalone or as steps in a larger pipeline.
 | Command       | Reads                          | Writes                                              |
 |---------------|--------------------------------|-----------------------------------------------------|
 | `annotate`    | BAM (+ optional FASTA, config) | BAM, optional `.fastq.gz`, optional tag `.parquet`  |
-| `error-stats` | BAM (+ config)                 | 8 error `.parquet` files                            |
+| `error-stats` | BAM + FASTA (+ config)         | 8 error `.parquet` files                            |
 | `pileup`      | BAM (+ optional FASTA, BED)    | 1 pileup `.parquet`                                 |
 | `qc-summary`  | BAM (+ optional config)        | 1 per-reference QC `.parquet`                       |
 

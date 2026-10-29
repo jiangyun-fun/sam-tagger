@@ -32,7 +32,7 @@ minimap2 (--cs)  ──▶  sam-tagger
 | Command       | Positional arguments        | Writes                                              | Read-only? |
 |---------------|-----------------------------|-----------------------------------------------------|------------|
 | `annotate`    | `INPUT-BAM OUTPUT-BAM`      | tagged BAM (or CRAM/SAM), optional FASTQ + Parquet  | no         |
-| `error-stats` | `INPUT-BAM CONFIG`          | 8 error Parquet files                               | yes        |
+| `error-stats` | `INPUT-BAM CONFIG` + `--fasta` | 8 error Parquet files                            | yes        |
 | `pileup`      | `INPUT-BAM OUTPUT`          | 1 pileup Parquet                                    | yes        |
 | `qc-summary`  | `INPUT-BAM OUTPUT`          | 1 per-reference QC Parquet                          | yes        |
 
@@ -152,9 +152,12 @@ sam-tagger annotate aln.cs.bam out.bam \
 sam-tagger error-stats INPUT-BAM CONFIG [ARGS]
 ```
 
-Read-only. Produces **eight** cs-tag error-statistics Parquet files. Give either
-a `--prefix` (writes `{prefix}.error.parquet`, `{prefix}.mismatch.parquet`, …) or
-the eight individual `--*-out` paths — the two are mutually exclusive.
+Read-only. Produces **eight** cs-tag error-statistics Parquet files. **`--fasta`
+is required** (indexed reference, `samtools faidx` — the same reference the BAM
+was aligned to): match observations and deletion smoothing read base identity
+from it, which the cs tag's `:N` ops do not carry. Give either a `--prefix`
+(writes `{prefix}.error.parquet`, `{prefix}.mismatch.parquet`, …) or the eight
+individual `--*-out` paths — the two are mutually exclusive.
 
 | Output (`--prefix` writes `{p}.*`) | `--*-out` flag          | Contents                  |
 |-----------------------------------|-------------------------|---------------------------|
@@ -167,11 +170,21 @@ the eight individual `--*-out` paths — the two are mutually exclusive.
 | `{p}.single_deletion.parquet`     | `--single-deletion-out` | Single-deletion counts    |
 | `{p}.ref_summary.parquet`         | `--ref-summary-out`     | Per-reference summary     |
 
-The `mismatch` file is long format: one row per `(seq_name, ref, alt)`
-pair — 12 dense rows per reference over A/C/G/T × A/C/G/T (the `ref == alt`
-diagonal never occurs; zeros included). `count` is the event count and
-`rate` = `count / ` the sequence's mismatch total, `0.0` on zero total.
-Rows involving an N base are not emitted, so the rates can sum below 1.
+The `mismatch` file is the substitution/accuracy matrix in long format: one
+row per `(seq_name, ref, alt)` pair — 16 dense rows per reference over
+A/C/G/T × A/C/G/T, zeros included. `adf` and `adr` split the count by the
+reads' strand (FLAG `0x10`, the same vocabulary as `pileup`): a substitution
+present in the template keeps `adf ≈ adr` after PCR, while a strand-asymmetric
+one flags a sequencing/PCR artifact. The `ref == alt` diagonal carries match
+observations (also strand-split) — the per-base agreement count. `rate` =
+`(adf+adr) / ` the sequence's mismatch total (`0.0` on zero total; null on
+the diagonal). `norm_rate` = `(adf+adr) / row total`, where the row total is
+that ref base's matches plus all its mismatches — the conditional
+`P(read base | ref base)` with the reference-composition bias removed (your
+`AAACGT` example: raw rates favor the A-row because A has 3 positions;
+`norm_rate` divides that exposure out). N read-base mismatches count in the
+row total but have no row of their own, so a row's `norm_rate` values can
+sum below 1.
 
 The `insertion` and `deletion` files carry one row per reference:
 `seq_name, total, {ins,del}_a, _c, _g, _t` and one `{ins,del}_{base}_rate`
@@ -191,7 +204,7 @@ The `error` file splits each position's `mismatch` count by the read
 base is N counts in `mismatch` only, so the four columns can sum below
 `mismatch`.
 
-The `error` file also carries `smoothed_deletion` (Float64, nullable): a
+The `error` file also carries `smoothed_deletion` (Float64): a
 deletion inside a reference homopolymer run is positionally ambiguous — the
 aligner's placement within the run is a convention, not evidence — so each
 deleted base spreads `1/run_len` over the maximal same-base reference run
@@ -201,9 +214,7 @@ instead of 1 at the aligner-chosen position. Mass is conserved:
 `sum(smoothed_deletion) == sum(deletion)` for runs fully inside the error
 inner region; mass landing outside the region is dropped, like plain
 per-position deletions. Non-homopolymer deletions carry their full count at
-their own position. **Requires `--fasta`** (same reference the BAM was
-aligned to, `samtools faidx`-indexed); without it the column is **null**.
-With `--fasta`, eventless positions read `0.0` like the integer columns.
+their own position. Eventless positions read `0.0` like the integer columns.
 
 The `error` file also carries `total` (per-position depth) and eight
 `*_rate` columns (`insertion_rate`, `deletion_rate`,
@@ -230,10 +241,10 @@ rate columns (`0.0` when a reference has no in-region errors).
 
 ```bash
 # prefix form (all 8 files at once)
-sam-tagger error-stats aln.cs.bam primers.csv --prefix run1
+sam-tagger error-stats aln.cs.bam primers.csv --fasta ref.fa --prefix run1
 
 # explicit-output form
-sam-tagger error-stats aln.cs.bam primers.csv \
+sam-tagger error-stats aln.cs.bam primers.csv --fasta ref.fa \
     --error-out err.parquet --mismatch-out mm.parquet \
     --insertion-out ins.parquet --deletion-out del.parquet \
     --per-read-out pr.parquet --per-base-out pb.parquet \

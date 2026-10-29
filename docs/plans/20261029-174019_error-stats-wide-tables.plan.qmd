@@ -1,5 +1,5 @@
 ---
-title: "Plan: reshape error-stats summary tables (wide/long), release v0.7.0"
+title: "Plan: reshape error-stats tables + required fasta + norm_rate, release v0.7.0"
 author: "Yun Jiang"
 date: 2026-10-29
 format:
@@ -17,48 +17,77 @@ include-in-header:
 
 # Objective
 
-Reshape five error-stats outputs to one-row-per-reference (or long
-ref/alt) tables with per-sequence rates, then release v0.7.0 and deploy
-to sibio.
+Reshape five error-stats outputs, require `--fasta`, and add
+strand-split/normalized mismatch analytics — shipped as v0.7.0 and deployed
+to sibio. The design was refined across four user turns; the final spec:
 
-# New schemas
+1. deletion/insertion: one row per reference, per-base counts + rates.
+2. mismatch: 16-row substitution/accuracy matrix (diagonal = matches),
+   `adf`/`adr` strand split, `norm_rate` row normalization.
+3. per_base/per_read: one row per reference, counts + rates.
+4. `--fasta` required (match counting and smoothing need base identity).
+
+# Final schemas
 
 | Output | Columns |
 |---|---|
 | `deletion` | seq_name, total, del_a..del_t, del_a_rate..del_t_rate |
 | `insertion` | seq_name, total, ins_a..ins_t, ins_a_rate..ins_t_rate |
-| `mismatch` | seq_name, ref, alt, count, rate |
-| `per_base` | seq_name, total, insertion, deletion, mismatch, insertion_rate, deletion_rate, mismatch_rate |
-| `per_read` | same shape as per_base (rates vs total reads) |
+| `mismatch` | seq_name, ref, alt, adf, adr, rate, norm_rate |
+| `per_base` | seq_name, total, insertion, deletion, mismatch, 3 rates |
+| `per_read` | same shape as per_base (rates vs tallied reads) |
 
-# Interpretations (stated)
+Mismatch semantics: `adf`/`adr` split counts by FLAG 0x10 (pileup
+vocabulary); the diagonal carries strand-split match observations;
+`rate = (adf+adr)/seq mismatch total` (null on diagonal);
+`norm_rate = (adf+adr)/row total` — the conditional P(read base | ref
+base) with the reference-composition exposure divided out (user's
+`AAACGT` motivation). N read-base mismatches count in the row total,
+no row of their own.
 
-- Every rate normalizes inside the sequence: `del_x_rate = del_x /
-  total` with `total` the per-seq event total (`per_base_summary`
-  insertions/deletions/mismatches); `0.0` on zero total.
-- N bases stay hidden: `del_*`/`ins_*` show A/C/G/T only (N counted in
-  `total`); mismatch rows are A/C/G/T x A/C/G/T, diagonal (ref==alt)
-  skipped — 12 dense rows per reference, zeros included.
-- per_base total = aligned bases; per_read total = tallied reads; the
-  old `substitution` label becomes `mismatch`.
-- `error`, `single_deletion`, `ref_summary` outputs are unchanged.
-- TypedStats stays (annotate AP/NB tag stats still use it);
-  MismatchMatrixStats is removed.
+# Interpretations (stated through the design dialogue)
 
-# Scope
+- Rates normalize inside the sequence; `0.0` on zero denominators.
+- N bases stay hidden in per-base columns; counted in totals.
+- Match tally uses per-reference prefix counts (O(1) per `:` op, not a
+  per-base loop) with the same inner-region gate as mismatches.
+- Without a reference accessor (library mode only — the CLI requires
+  `--fasta`), the diagonal and `norm_rate` go null; qc-summary's internal
+  collector is unaffected (it reads `per_base_counts` only).
+- `error`, `single_deletion`, `ref_summary` outputs unchanged;
+  `TypedStats` stays (annotate AP/NB tag stats).
 
-- `parquet_writer.py`: new `IndelCompositionStats` (prefix param),
-  `PerRefCountsStats`, `MismatchLongStats`; remove `MismatchMatrixStats`.
-- `stats/error_stats.py`: rewrite `_write_{insertion,deletion,per_read,
-  per_base,mismatch}_stats`.
-- `cli.py` + `docs/usage.qmd`: update the output table/help.
-- Tests: parquet_writer matrix tests replaced; integration + qc-summary
-  per_base readers updated; new value assertions in test_stats.
-- Version 0.6.0 -> 0.7.0; release; conda-recipes meta.yaml 0.7.0 + new
-  sha256; build-meta; sibio deploy; verify; audit pair; report.
+# Steps (as executed)
+
+1. Wide/long reshape committed (`1ade8e1`), docs (`048937c`), bump + tag
+   `v0.7.0` pushed — then HALTED by the user; the tag predates everything
+   below and is re-cut before release.
+2. Required `--fasta`: `ErrorStatsArgs.fasta` non-optional;
+   `run_error_stats` opens the FastaFile unconditionally; fixture work in
+   ~10 tests (`setup_env` gained `Setup.fasta_path`).
+3. Match tally: `_PerRefErrorStats.match_fwd/match_rev` +
+   `_ref_prefix_counts` cache; `_count_matches` clips runs to the inner
+   region.
+4. adf/adr split: strand matrices `mismatch_matrix_fwd/rev`;
+   `tally_from_parsed` gained a required `is_reverse` parameter (both
+   orchestrators pass `record.is_reverse`).
+5. Checks: 160 tests, ruff, pyright green; CLI smoke run verified adf/adr,
+   diagonal matches, null rate, norm_rate values by hand.
+6. Release: delete stale tag/release, re-tag `v0.7.0`, workflow,
+   curated notes; conda-recipes `meta.yaml` 0.7.0 + sha256; build-meta;
+   sibio deploy + fresh-env verify; audit pair; report.
+
+# Risks
+
+- Breaking release (schemas, required flag, `tally_from_parsed`
+  signature) — 0.x convention; migration notes in the release body.
+- Wrong-fasta failure mode remains (warn-once path); requiring the file
+  does not verify it is the right one.
 
 # Verification criteria
 
-1. Full suite + lint + pyright green; smoke run shows the new schemas.
-2. `sam-tagger --version` -> 0.7.0; release carries wheel + sdist.
+1. 160 tests + lint + pyright green; smoke run matches hand-computed
+   adf/adr/norm_rate.
+2. `sam-tagger --version` -> 0.7.0; release carries wheel + sdist built
+   from the re-cut tag.
 3. sibio resolves 0.7.0; fresh-env install verifies.
