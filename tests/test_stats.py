@@ -260,6 +260,58 @@ def test_error_stats_write_all_eight(tmp_path: Path) -> None:
     assert row["to_t"].item() == 0
 
 
+def test_error_stats_summary_table_schemas(tmp_path: Path) -> None:
+    # one read ":4*ac+gt-cg:2" over a 10 bp ref, inner region [0,10):
+    # 1 mismatch (A->C), inserted g+t, deleted c+g, 9 aligned bases.
+    params = {"ref1": ErrorParams(seq_len=10, inner_region_start=0, inner_region_end=10)}
+    paths = _err_paths(tmp_path)
+    col = ErrorStatsCollector(params, paths)
+    col.tally_from_parsed(parse_cs_tag(":4*ac+gt-cg:2"), 0, "ref1", "r1")
+    col.write_results()
+
+    mm = pl.read_parquet(paths.mismatch)
+    assert mm.columns == ["seq_name", "ref", "alt", "count", "rate"]
+    assert mm.height == 12  # 4x4 minus the ref==alt diagonal, zeros included
+    hit = mm.filter((pl.col("ref") == "A") & (pl.col("alt") == "C"))
+    assert hit["count"].item() == 1
+    assert hit["rate"].item() == pytest.approx(1.0)  # seq mismatch total is 1
+    assert mm.filter((pl.col("ref") == "G") & (pl.col("alt") == "T"))["count"].item() == 0
+
+    ins = pl.read_parquet(paths.insertion)
+    assert ins.columns == [
+        "seq_name", "total", "ins_a", "ins_c", "ins_g", "ins_t",
+        "ins_a_rate", "ins_c_rate", "ins_g_rate", "ins_t_rate",
+    ]
+    row = ins.row(0, named=True)
+    assert (row["total"], row["ins_g"], row["ins_t"]) == (2, 1, 1)
+    assert row["ins_g_rate"] == pytest.approx(0.5)
+    assert row["ins_a_rate"] == 0.0
+
+    dele = pl.read_parquet(paths.deletion)
+    assert dele.columns == [
+        "seq_name", "total", "del_a", "del_c", "del_g", "del_t",
+        "del_a_rate", "del_c_rate", "del_g_rate", "del_t_rate",
+    ]
+    row = dele.row(0, named=True)
+    assert (row["total"], row["del_c"], row["del_g"]) == (2, 1, 1)
+    assert row["del_c_rate"] == pytest.approx(0.5)
+
+    pb = pl.read_parquet(paths.per_base)
+    assert pb.columns == [
+        "seq_name", "total", "insertion", "deletion", "mismatch",
+        "insertion_rate", "deletion_rate", "mismatch_rate",
+    ]
+    row = pb.row(0, named=True)
+    assert (row["total"], row["insertion"], row["deletion"], row["mismatch"]) == (9, 2, 2, 1)
+    assert row["mismatch_rate"] == pytest.approx(1 / 9)
+
+    pr = pl.read_parquet(paths.per_read)
+    assert pr.columns == pb.columns
+    row = pr.row(0, named=True)
+    assert (row["total"], row["insertion"], row["deletion"], row["mismatch"]) == (1, 1, 1, 1)
+    assert row["insertion_rate"] == pytest.approx(1.0)
+
+
 def test_error_paths_from_prefix(tmp_path: Path) -> None:
     args = ErrorStatsArgs(
         input_bam=Path("in.bam"), config=Path("c.toml"), prefix=tmp_path / "stats"

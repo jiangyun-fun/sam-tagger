@@ -163,10 +163,15 @@ def test_empty_bam_annotate_pileup_errorstats(tmp_path: Path) -> None:
         "per_read",
         "per_base",
         "single_deletion",
+        "ref_summary",
     ):
         assert (tmp_path / f"err.{ext}.parquet").exists()
-    # no reads -> per_read counts all zero
-    assert pl.read_parquet(tmp_path / "err.per_read.parquet")["count"].sum() == 0
+    # no reads -> per_read row exists with all-zero counts and rates
+    pr = pl.read_parquet(tmp_path / "err.per_read.parquet")
+    assert pr.height == 1
+    row = pr.row(0, named=True)
+    assert (row["total"], row["insertion"], row["deletion"], row["mismatch"]) == (0, 0, 0, 0)
+    assert row["insertion_rate"] == 0.0
 
 
 # ---------------------------------------------------------------------------

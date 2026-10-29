@@ -245,16 +245,16 @@ class TestErrorStats:
 
         per_base = tmp_path / "stats.per_base.parquet"
         assert per_base.exists()
-        stats: dict[str, int] = {
-            str(r["type"]): int(r["count"])
-            for r in pl.read_parquet(per_base)
+        row = (
+            pl.read_parquet(per_base)
             .filter(pl.col("seq_name") == "seq1")
-            .iter_rows(named=True)
-        }
-        assert stats["total"] == 56
-        assert stats["insertion"] == 1
-        assert stats["deletion"] == 1
-        assert stats["substitution"] == 2
+            .row(0, named=True)
+        )
+        assert row["total"] == 56
+        assert row["insertion"] == 1
+        assert row["deletion"] == 1
+        assert row["mismatch"] == 2
+        assert row["mismatch_rate"] == pytest.approx(2 / 56)
 
 
 # ===========================================================================

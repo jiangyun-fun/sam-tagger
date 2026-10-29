@@ -6,7 +6,9 @@ import polars as pl
 import pytest
 
 from sam_tagger.parquet_writer import (
-    MismatchMatrixStats,
+    IndelCompositionStats,
+    MismatchLongStats,
+    PerRefCountsStats,
     PositionalErrorStats,
     SimpleStats,
     SingleDeletionStats,
@@ -138,28 +140,70 @@ def test_single_deletion_stats_write_and_read_parquet(tmp_path: Path) -> None:
     assert df["single_deletion"][0] == 45
 
 
-def test_mismatch_matrix_stats_to_dataframe() -> None:
-    stats = MismatchMatrixStats()
-    stats.add("ref1", "A", 0, 5, 2, 1)
-    stats.add("ref1", "C", 3, 0, 0, 4)
+def test_indel_composition_stats_to_dataframe() -> None:
+    # rates normalize inside the sequence; zero total -> all rates 0.0
+    stats = IndelCompositionStats("del")
+    stats.add("ref1", 10, 4, 3, 2, 1)
+    stats.add("ref2", 0, 0, 0, 0, 0)
     df = stats.to_dataframe()
-    assert df.height == 2
-    assert df.width == 6
-    assert df["ref_base"][0] == "A"
-    assert df["A"][0] == 0
-    assert df["ref_base"][1] == "C"
-    assert df["A"][1] == 3
+    assert df.columns == [
+        "seq_name", "total",
+        "del_a", "del_c", "del_g", "del_t",
+        "del_a_rate", "del_c_rate", "del_g_rate", "del_t_rate",
+    ]
+    assert df["del_a"][0] == 4
+    assert df["del_a_rate"][0] == pytest.approx(0.4)
+    assert df["del_t_rate"][0] == pytest.approx(0.1)
+    assert df["del_a_rate"][1] == 0.0  # zero total, no division error
 
 
-def test_mismatch_matrix_stats_write_and_read_parquet(tmp_path: Path) -> None:
-    path = tmp_path / "test_mismatch.parquet"
-    stats = MismatchMatrixStats()
-    stats.add("ref1", "G", 10, 20, 30, 0)
+def test_indel_composition_stats_ins_prefix(tmp_path: Path) -> None:
+    path = tmp_path / "ins.parquet"
+    stats = IndelCompositionStats("ins")
+    stats.add("ref1", 8, 2, 2, 2, 2)
     stats.write_parquet(path)
-    assert path.exists()
-    df = pl.scan_parquet(path).collect()
-    assert df["ref_base"][0] == "G"
-    assert df["G"][0] == 0
+    df = pl.read_parquet(path)
+    assert df.columns == [
+        "seq_name", "total",
+        "ins_a", "ins_c", "ins_g", "ins_t",
+        "ins_a_rate", "ins_c_rate", "ins_g_rate", "ins_t_rate",
+    ]
+    assert df["ins_a_rate"][0] == pytest.approx(0.25)
+
+
+def test_per_ref_counts_stats_to_dataframe() -> None:
+    stats = PerRefCountsStats()
+    stats.add("ref1", 100, 5, 10, 20)
+    stats.add("ref2", 0, 0, 0, 0)
+    df = stats.to_dataframe()
+    assert df.columns == [
+        "seq_name", "total", "insertion", "deletion", "mismatch",
+        "insertion_rate", "deletion_rate", "mismatch_rate",
+    ]
+    assert df["insertion_rate"][0] == pytest.approx(0.05)
+    assert df["mismatch_rate"][0] == pytest.approx(0.2)
+    assert df["deletion_rate"][1] == 0.0  # zero total, no division error
+
+
+def test_mismatch_long_stats_to_dataframe() -> None:
+    stats = MismatchLongStats()
+    stats.add("ref1", "A", "C", 3, 0.75)
+    stats.add("ref1", "G", "T", 1, 0.25)
+    df = stats.to_dataframe()
+    assert df.columns == ["seq_name", "ref", "alt", "count", "rate"]
+    assert df.height == 2
+    assert df["ref"][0] == "A" and df["alt"][0] == "C"
+    assert df["rate"][1] == pytest.approx(0.25)
+
+
+def test_mismatch_long_stats_write_and_read_parquet(tmp_path: Path) -> None:
+    path = tmp_path / "test_mismatch.parquet"
+    stats = MismatchLongStats()
+    stats.add("ref1", "G", "A", 7, 0.7)
+    stats.write_parquet(path)
+    df = pl.read_parquet(path)
+    assert df["count"][0] == 7
+    assert df["rate"][0] == pytest.approx(0.7)
 
 
 def test_write_df_to_parquet_creates_valid_file(tmp_path: Path) -> None:

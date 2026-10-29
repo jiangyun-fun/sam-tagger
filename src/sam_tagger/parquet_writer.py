@@ -246,31 +246,124 @@ class RefSummaryStats:
 
 
 @dataclass
-class MismatchMatrixStats:
-    """6-column statistics: (seq_name, ref_base, A, T, C, G)."""
+class IndelCompositionStats:
+    """Insertion/deletion base composition: one row per reference.
 
-    data: list[tuple[str, str, int, int, int, int]] = field(default_factory=list)
+    Columns: seq_name, total, {p}_a, {p}_c, {p}_g, {p}_t and one rate per
+    base — count / total (0.0 on zero total), normalized inside the
+    sequence. ``prefix`` is ``ins`` or ``del``. N-base events count in
+    ``total`` but have no column, so the four rates can sum below 1.
+    """
 
-    def add(self, seq_name: str, ref_base: str, a: int, t: int, c: int, g: int) -> None:
-        self.data.append((seq_name, ref_base, a, t, c, g))
+    prefix: str
+    data: list[tuple[str, int, int, int, int, int]] = field(default_factory=list)
+
+    def add(
+        self, seq_name: str, total: int, a: int, c: int, g: int, t: int
+    ) -> None:
+        self.data.append((seq_name, total, a, c, g, t))
+
+    def to_dataframe(self) -> pl.DataFrame:
+        p = self.prefix
+        cols: dict[str, list[object]] = {"seq_name": [], "total": []}
+        for b in "acgt":
+            cols[f"{p}_{b}"] = []
+        for b in "acgt":
+            cols[f"{p}_{b}_rate"] = []
+        for seq_name, total, a, c, g, t in self.data:
+            counts = {"a": a, "c": c, "g": g, "t": t}
+            cols["seq_name"].append(seq_name)
+            cols["total"].append(total)
+            for b in "acgt":
+                cols[f"{p}_{b}"].append(counts[b])
+            for b in "acgt":
+                cols[f"{p}_{b}_rate"].append((counts[b] / total) if total else 0.0)
+        schema: dict[str, object] = {"seq_name": pl.Utf8, "total": pl.UInt64}
+        for b in "acgt":
+            schema[f"{p}_{b}"] = pl.UInt64
+        for b in "acgt":
+            schema[f"{p}_{b}_rate"] = pl.Float64
+        return pl.DataFrame(cols, schema=schema)  # type: ignore[arg-type]
+
+    def write_parquet(self, path: Path) -> None:
+        write_df_to_parquet(self.to_dataframe(), path)
+
+
+@dataclass
+class PerRefCountsStats:
+    """7-column per-reference counts: seq_name, total, insertion, deletion,
+    mismatch, and one rate per count — count / total (0.0 on zero total).
+
+    Serves both ``per_base`` (total = aligned bases) and ``per_read``
+    (total = tallied reads).
+    """
+
+    data: list[tuple[str, int, int, int, int]] = field(default_factory=list)
+
+    def add(
+        self, seq_name: str, total: int, insertion: int, deletion: int, mismatch: int
+    ) -> None:
+        self.data.append((seq_name, total, insertion, deletion, mismatch))
+
+    def to_dataframe(self) -> pl.DataFrame:
+        cols: dict[str, list[object]] = {"seq_name": [], "total": []}
+        for kind in ("insertion", "deletion", "mismatch"):
+            cols[kind] = []
+            cols[f"{kind}_rate"] = []
+        for seq_name, total, ins, dele, mis in self.data:
+            counts = {"insertion": ins, "deletion": dele, "mismatch": mis}
+            cols["seq_name"].append(seq_name)
+            cols["total"].append(total)
+            for kind in ("insertion", "deletion", "mismatch"):
+                cols[kind].append(counts[kind])
+                cols[f"{kind}_rate"].append((counts[kind] / total) if total else 0.0)
+        return pl.DataFrame(
+            cols,
+            schema={
+                "seq_name": pl.Utf8,
+                "total": pl.UInt64,
+                "insertion": pl.UInt64,
+                "deletion": pl.UInt64,
+                "mismatch": pl.UInt64,
+                "insertion_rate": pl.Float64,
+                "deletion_rate": pl.Float64,
+                "mismatch_rate": pl.Float64,
+            },
+        )
+
+    def write_parquet(self, path: Path) -> None:
+        write_df_to_parquet(self.to_dataframe(), path)
+
+
+@dataclass
+class MismatchLongStats:
+    """5-column long-format mismatch table: (seq_name, ref, alt, count, rate).
+
+    ``rate`` = count / the sequence's mismatch total (0.0 on zero total),
+    normalized inside the sequence. Rows with N bases or ref == alt are
+    not emitted; N mass keeps the rates summing below 1 when present.
+    """
+
+    data: list[tuple[str, str, str, int, float]] = field(default_factory=list)
+
+    def add(self, seq_name: str, ref: str, alt: str, count: int, rate: float) -> None:
+        self.data.append((seq_name, ref, alt, count, rate))
 
     def to_dataframe(self) -> pl.DataFrame:
         return pl.DataFrame(
             {
-                "seq_name": [n for n, _, _, _, _, _ in self.data],
-                "ref_base": [b for _, b, _, _, _, _ in self.data],
-                "A": [a for _, _, a, _, _, _ in self.data],
-                "T": [t for _, _, _, t, _, _ in self.data],
-                "C": [c for _, _, _, _, c, _ in self.data],
-                "G": [g for _, _, _, _, _, g in self.data],
+                "seq_name": [r[0] for r in self.data],
+                "ref": [r[1] for r in self.data],
+                "alt": [r[2] for r in self.data],
+                "count": [r[3] for r in self.data],
+                "rate": [r[4] for r in self.data],
             },
             schema={
                 "seq_name": pl.Utf8,
-                "ref_base": pl.Utf8,
-                "A": pl.UInt64,
-                "T": pl.UInt64,
-                "C": pl.UInt64,
-                "G": pl.UInt64,
+                "ref": pl.Utf8,
+                "alt": pl.Utf8,
+                "count": pl.UInt64,
+                "rate": pl.Float64,
             },
         )
 

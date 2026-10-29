@@ -23,10 +23,15 @@ def _read_qc(path: Path) -> dict[str, dict]:
 
 
 def _read_per_base(path: Path) -> dict[str, dict[str, int]]:
-    """seq_name -> {total/insertion/deletion/substitution: count} from error-stats per_base."""
+    """seq_name -> {total/insertion/deletion/mismatch: count} from error-stats per_base."""
     out: dict[str, dict[str, int]] = {}
     for r in pl.read_parquet(path).iter_rows(named=True):
-        out.setdefault(r["seq_name"], {})[r["type"]] = int(r["count"])
+        out[r["seq_name"]] = {
+            "total": int(r["total"]),
+            "insertion": int(r["insertion"]),
+            "deletion": int(r["deletion"]),
+            "mismatch": int(r["mismatch"]),
+        }
     return out
 
 
@@ -220,7 +225,7 @@ def test_qc_summary_error_matches_error_stats(tmp_path: Path) -> None:
         pb = per_base[ref]
         row = qc[ref]
         assert row["aligned_bases"] == pb["total"]
-        assert row["mismatches"] == pb["substitution"]
+        assert row["mismatches"] == pb["mismatch"]
         assert row["insertions"] == pb["insertion"]
         assert row["deletions"] == pb["deletion"]
     # seq3 has no error config and no reads -> absent from error-stats, zeros in qc-summary

@@ -16,11 +16,12 @@ from loguru import logger
 from sam_tagger.cli import ErrorStatsArgs
 from sam_tagger.config import ErrorParams
 from sam_tagger.parquet_writer import (
-    MismatchMatrixStats,
+    IndelCompositionStats,
+    MismatchLongStats,
+    PerRefCountsStats,
     PositionalErrorStats,
     RefSummaryStats,
     SingleDeletionStats,
-    TypedStats,
 )
 from sam_tagger.processing import homopolymer_run_span
 
@@ -145,9 +146,6 @@ def _base_to_idx(base: int) -> int | None:
     if b == ord(b"n"):
         return 4
     return None
-
-
-_BASE_ORDER = ["A", "C", "G", "T"]
 
 
 class ErrorStatsCollector:
@@ -493,70 +491,100 @@ class ErrorStatsCollector:
         ref_summary.write_parquet(paths.ref_summary)
 
     def _write_mismatch_stats(self, paths: ErrorStatsOutputPaths) -> None:
-        logger.info("Writing mismatch matrix to {}", paths.mismatch)
-        mismatch_stats = MismatchMatrixStats()
+        """Long format: one row per (seq_name, ref, alt) pair.
+
+        12 dense rows per reference (A/C/G/T x A/C/G/T, ref == alt skipped,
+        zeros included). ``rate`` = count / the sequence's mismatch total,
+        0.0 on zero total; rows with an N base are not emitted, so the
+        rates can sum below 1 when N mismatches exist.
+        """
+        logger.info("Writing mismatch table to {}", paths.mismatch)
+        mismatch_stats = MismatchLongStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
-        # Rust: ROW_ORDER = ['a', 't', 'c', 'g'], COL_ORDER_MAP = [0, 3, 1, 2]
-        row_order = [ord(c) for c in "atcg"]
-        col_map = [0, 3, 1, 2]
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
-            for base_row in row_order:
-                row_idx = _base_to_idx(base_row)
-                if row_idx is None:
-                    continue
-                a = ref_stats.mismatch_matrix[row_idx][col_map[0]]
-                t = ref_stats.mismatch_matrix[row_idx][col_map[1]]
-                c = ref_stats.mismatch_matrix[row_idx][col_map[2]]
-                g = ref_stats.mismatch_matrix[row_idx][col_map[3]]
-                mismatch_stats.add(seq_name, chr(base_row).upper(), a, t, c, g)
+            total = ref_stats.per_base_summary.mismatches
+            for ref_base, ref_idx in (("A", 0), ("C", 1), ("G", 2), ("T", 3)):
+                for alt_base, alt_idx in (("A", 0), ("C", 1), ("G", 2), ("T", 3)):
+                    if ref_idx == alt_idx:
+                        continue  # ref -> same base is a match, never tallied
+                    count = ref_stats.mismatch_matrix[ref_idx][alt_idx]
+                    mismatch_stats.add(
+                        seq_name,
+                        ref_base,
+                        alt_base,
+                        count,
+                        (count / total) if total else 0.0,
+                    )
         mismatch_stats.write_parquet(paths.mismatch)
 
     def _write_insertion_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        """One row per reference: inserted-base composition + rates.
+
+        ``total`` = all inserted bases (N included); ``ins_a``..``ins_t``
+        and their rates (count/total, inside the sequence) cover A/C/G/T.
+        """
         logger.info("Writing insertion summary to {}", paths.insertion)
-        typed = TypedStats("insertion")
+        typed = IndelCompositionStats("ins")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
-            for i, base in enumerate(_BASE_ORDER):
-                typed.add(seq_name, base, ref_stats.insertion_summary[i])
+            s = ref_stats.insertion_summary
+            typed.add(
+                seq_name, ref_stats.per_base_summary.insertions, s[0], s[1], s[2], s[3]
+            )
         typed.write_parquet(paths.insertion)
 
     def _write_deletion_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        """One row per reference: deleted-base composition + rates.
+
+        ``total`` = all deleted bases (N included); ``del_a``..``del_t``
+        and their rates (count/total, inside the sequence) cover A/C/G/T.
+        """
         logger.info("Writing deletion summary to {}", paths.deletion)
-        typed = TypedStats("deletion")
+        typed = IndelCompositionStats("del")
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
         for seq_name in sorted_refs:
             ref_stats = self._stats_by_ref.get(seq_name, default)
-            for i, base in enumerate(_BASE_ORDER):
-                typed.add(seq_name, base, ref_stats.deletion_summary[i])
+            s = ref_stats.deletion_summary
+            typed.add(
+                seq_name, ref_stats.per_base_summary.deletions, s[0], s[1], s[2], s[3]
+            )
         typed.write_parquet(paths.deletion)
 
     def _write_per_read_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        """One row per reference: read-level counts + rates vs tallied reads."""
         logger.info("Writing per_read statistics to {}", paths.per_read)
-        typed = TypedStats("per_read")
+        typed = PerRefCountsStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
         for seq_name in sorted_refs:
             summary = self._stats_by_ref.get(seq_name, default).per_read_summary
-            typed.add(seq_name, "total", summary.total_reads)
-            typed.add(seq_name, "insertion", summary.reads_with_insertion)
-            typed.add(seq_name, "deletion", summary.reads_with_deletion)
-            typed.add(seq_name, "substitution", summary.reads_with_mismatch)
+            typed.add(
+                seq_name,
+                summary.total_reads,
+                summary.reads_with_insertion,
+                summary.reads_with_deletion,
+                summary.reads_with_mismatch,
+            )
         typed.write_parquet(paths.per_read)
 
     def _write_per_base_stats(self, paths: ErrorStatsOutputPaths) -> None:
+        """One row per reference: base-level counts + rates vs aligned bases."""
         logger.info("Writing per_base statistics to {}", paths.per_base)
-        typed = TypedStats("per_base")
+        typed = PerRefCountsStats()
         sorted_refs = sorted(self._error_params_map.keys())
         default = _PerRefErrorStats()
         for seq_name in sorted_refs:
             summary = self._stats_by_ref.get(seq_name, default).per_base_summary
-            typed.add(seq_name, "total", summary.total_aligned_bases)
-            typed.add(seq_name, "insertion", summary.insertions)
-            typed.add(seq_name, "deletion", summary.deletions)
-            typed.add(seq_name, "substitution", summary.mismatches)
+            typed.add(
+                seq_name,
+                summary.total_aligned_bases,
+                summary.insertions,
+                summary.deletions,
+                summary.mismatches,
+            )
         typed.write_parquet(paths.per_base)
