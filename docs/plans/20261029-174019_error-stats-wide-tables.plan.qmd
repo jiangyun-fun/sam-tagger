@@ -1,0 +1,64 @@
+---
+title: "Plan: reshape error-stats summary tables (wide/long), release v0.7.0"
+author: "Yun Jiang"
+date: 2026-10-29
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏷️</text></svg>">
+---
+
+# Objective
+
+Reshape five error-stats outputs to one-row-per-reference (or long
+ref/alt) tables with per-sequence rates, then release v0.7.0 and deploy
+to sibio.
+
+# New schemas
+
+| Output | Columns |
+|---|---|
+| `deletion` | seq_name, total, del_a..del_t, del_a_rate..del_t_rate |
+| `insertion` | seq_name, total, ins_a..ins_t, ins_a_rate..ins_t_rate |
+| `mismatch` | seq_name, ref, alt, count, rate |
+| `per_base` | seq_name, total, insertion, deletion, mismatch, insertion_rate, deletion_rate, mismatch_rate |
+| `per_read` | same shape as per_base (rates vs total reads) |
+
+# Interpretations (stated)
+
+- Every rate normalizes inside the sequence: `del_x_rate = del_x /
+  total` with `total` the per-seq event total (`per_base_summary`
+  insertions/deletions/mismatches); `0.0` on zero total.
+- N bases stay hidden: `del_*`/`ins_*` show A/C/G/T only (N counted in
+  `total`); mismatch rows are A/C/G/T x A/C/G/T, diagonal (ref==alt)
+  skipped — 12 dense rows per reference, zeros included.
+- per_base total = aligned bases; per_read total = tallied reads; the
+  old `substitution` label becomes `mismatch`.
+- `error`, `single_deletion`, `ref_summary` outputs are unchanged.
+- TypedStats stays (annotate AP/NB tag stats still use it);
+  MismatchMatrixStats is removed.
+
+# Scope
+
+- `parquet_writer.py`: new `IndelCompositionStats` (prefix param),
+  `PerRefCountsStats`, `MismatchLongStats`; remove `MismatchMatrixStats`.
+- `stats/error_stats.py`: rewrite `_write_{insertion,deletion,per_read,
+  per_base,mismatch}_stats`.
+- `cli.py` + `docs/usage.qmd`: update the output table/help.
+- Tests: parquet_writer matrix tests replaced; integration + qc-summary
+  per_base readers updated; new value assertions in test_stats.
+- Version 0.6.0 -> 0.7.0; release; conda-recipes meta.yaml 0.7.0 + new
+  sha256; build-meta; sibio deploy; verify; audit pair; report.
+
+# Verification criteria
+
+1. Full suite + lint + pyright green; smoke run shows the new schemas.
+2. `sam-tagger --version` -> 0.7.0; release carries wheel + sdist.
+3. sibio resolves 0.7.0; fresh-env install verifies.

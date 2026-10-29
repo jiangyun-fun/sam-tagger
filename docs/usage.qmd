@@ -159,13 +159,32 @@ the eight individual `--*-out` paths — the two are mutually exclusive.
 | Output (`--prefix` writes `{p}.*`) | `--*-out` flag          | Contents                  |
 |-----------------------------------|-------------------------|---------------------------|
 | `{p}.error.parquet`               | `--error-out`           | Positional error counts   |
-| `{p}.mismatch.parquet`            | `--mismatch-out`        | Mismatch matrix           |
-| `{p}.insertion.parquet`           | `--insertion-out`       | Insertion summary         |
-| `{p}.deletion.parquet`            | `--deletion-out`        | Deletion summary          |
+| `{p}.mismatch.parquet`            | `--mismatch-out`        | Mismatch table (long)     |
+| `{p}.insertion.parquet`           | `--insertion-out`       | Insertion composition     |
+| `{p}.deletion.parquet`            | `--deletion-out`        | Deletion composition      |
 | `{p}.per_read.parquet`            | `--per-read-out`        | Per-read error            |
 | `{p}.per_base.parquet`            | `--per-base-out`        | Per-base error            |
 | `{p}.single_deletion.parquet`     | `--single-deletion-out` | Single-deletion counts    |
 | `{p}.ref_summary.parquet`         | `--ref-summary-out`     | Per-reference summary     |
+
+The `mismatch` file is long format: one row per `(seq_name, ref, alt)`
+pair — 12 dense rows per reference over A/C/G/T × A/C/G/T (the `ref == alt`
+diagonal never occurs; zeros included). `count` is the event count and
+`rate` = `count / ` the sequence's mismatch total, `0.0` on zero total.
+Rows involving an N base are not emitted, so the rates can sum below 1.
+
+The `insertion` and `deletion` files carry one row per reference:
+`seq_name, total, {ins,del}_a, _c, _g, _t` and one `{ins,del}_{base}_rate`
+per base (`count / total`, normalized inside the sequence; `0.0` on zero
+total). `total` counts **all** inserted/deleted bases; N-base events count
+in `total` but have no column, so the four rates can sum below 1.
+
+The `per_base` and `per_read` files carry one row per reference:
+`seq_name, total, insertion, deletion, mismatch, insertion_rate,
+deletion_rate, mismatch_rate`. For `per_base`, `total` is the aligned-base
+count and the rates are event counts over it. For `per_read`, `total` is
+the tallied-read count and the counts are reads carrying each error kind
+(a read with several mismatches still counts once).
 
 The `error` file splits each position's `mismatch` count by the read
 (destination) base in `to_a`/`to_c`/`to_g`/`to_t`. A substitution whose read

@@ -232,11 +232,13 @@ def error_stats(args: Annotated[ErrorStatsArgs, Parameter(name="")]) -> None:
     |--------------------------|----------------------------------------------------------------|
     | `error`                  | seq_name, position, insertion, deletion, smoothed_deletion,    |
     |                          | mismatch, to_a, to_c, to_g, to_t, total, + one rate per count  |
-    | `mismatch`               | seq_name, ref_base, A, T, C, G                                 |
-    | `insertion`              | seq_name, type (inserted base), count                          |
-    | `deletion`               | seq_name, type (deleted base), count                           |
-    | `per_read`               | seq_name, type (total/insertion/deletion/substitution), count  |
-    | `per_base`               | seq_name, type (total/insertion/deletion/substitution), count  |
+    | `mismatch`               | seq_name, ref, alt, count, rate (count / seq mismatch total)   |
+    | `insertion`              | seq_name, total, ins_a..ins_t, + one rate per base             |
+    | `deletion`               | seq_name, total, del_a..del_t, + one rate per base             |
+    | `per_read`               | seq_name, total, insertion, deletion, mismatch, + one rate     |
+    |                          | per count (rate vs tallied reads)                              |
+    | `per_base`               | seq_name, total, insertion, deletion, mismatch, + one rate     |
+    |                          | per count (rate vs aligned bases)                              |
     | `single_deletion`        | seq_name, position, deletion, single_deletion                  |
     | `ref_summary`            | seq_name, max_min_rate (min/max depth), max_error_rate         |
     """
