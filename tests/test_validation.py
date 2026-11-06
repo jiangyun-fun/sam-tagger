@@ -40,8 +40,17 @@ def test_annotate_tc_stats_without_config_raises(tmp_path) -> None:
 
 
 def test_annotate_ap_without_config_raises(tmp_path) -> None:
-    setup = setup_env(tmp_path, None, H_SEQ1_28, _REC)
+    # with a fasta (so the fasta precondition passes) but no --config
+    setup = setup_env(
+        tmp_path, None, H_SEQ1_28, _REC, fasta={"seq1": "ACGT" * 7}
+    )
     with pytest.raises(ValueError, match="amp"):
+        run_annotate(_args(setup, add_ap="AP", fasta=setup.fasta_path))
+
+
+def test_annotate_ap_without_fasta_raises(tmp_path) -> None:
+    setup = setup_env(tmp_path, None, H_SEQ1_28, _REC)
+    with pytest.raises(ValueError, match="fasta"):
         run_annotate(_args(setup, add_ap="AP"))
 
 
@@ -103,4 +112,20 @@ def test_error_stats_neither_prefix_nor_explicit_raises(tmp_path) -> None:
             ErrorStatsArgs(
                 input_bam=setup.input_bam, config=setup.config_path, fasta=setup.fasta_path
             )
+        )
+
+
+def test_qc_summary_ap_config_without_fasta_raises(tmp_path) -> None:
+    # qc-summary: amp-primer config but no --fasta -> loud error (needles are
+    # reference windows), not silently-zero AP columns.
+    from sam_tagger.cli import QcSummaryArgs
+    from sam_tagger.lib import run_qc_summary
+
+    cfg = {"seq1": {"amp_primer_start_len": 8, "amp_primer_end_len": 8}}
+    setup = setup_env(tmp_path, cfg, H_SEQ1_28, _REC)
+    assert setup.config_path is not None
+    with pytest.raises(ValueError, match="fasta"):
+        run_qc_summary(
+            QcSummaryArgs(input_bam=setup.input_bam, output=tmp_path / "qc.parquet",
+                          config=setup.config_path)
         )

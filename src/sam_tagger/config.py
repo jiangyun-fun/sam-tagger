@@ -6,13 +6,16 @@ or generic catch-all columns.
 
 ``seq_name``/``seq_len`` come from the BAM header, so the config only carries
 per-reference primer / sub-read / NB parameters the header cannot provide.
+The AP primer **needle sequences** are not in the CSV either: they are the
+reference FASTA windows ``ref[0:amp_primer_start_len]`` /
+``ref[-amp_primer_end_len:]``, fetched at resolve time.
 
 The CSV is **wide** — one row per reference, a ``seq_name`` column plus any
 subset of the :class:`RefConfig` field columns. Empty cells mean "unset" (the
 field's model default applies). Example ``config.csv``::
 
-    seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
-    seq1,8,8,GGGGGGGGG,CCCCCCC,5,5,12,21,6
+    seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_len,amp_primer_end_len,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+    seq1,8,8,9,7,5,5,12,21,6
     150-1-P,,,,,,,,10,10,,
 """
 
@@ -22,8 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import polars as pl
+import pysam
 from loguru import logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 DEFAULT_MIN_MATCH_LEN: int = 7
 
@@ -36,8 +40,6 @@ _REF_CONFIG_FIELDS: frozenset[str] = frozenset(
         "tc_primer_end_len",
         "amp_primer_start_len",
         "amp_primer_end_len",
-        "amp_primer_start_seq",
-        "amp_primer_end_seq",
         "amp_primer_start_min_match",
         "amp_primer_end_min_match",
         "error_primer_start_len",
@@ -105,7 +107,8 @@ class RefConfig(BaseModel):
 
     Every field is optional; a reference only declares what its features need.
     ``extra="forbid"`` turns typos (e.g. ``tc_primer_star_len``) into hard errors
-    instead of silently-ignored rows.
+    instead of silently-ignored rows. A non-positive ``amp_primer_*_len`` cell
+    means "unset" (the ecsngsqc generator writes 0 for unconfigured refs).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -114,8 +117,6 @@ class RefConfig(BaseModel):
     tc_primer_end_len: int | None = None
     amp_primer_start_len: int | None = None
     amp_primer_end_len: int | None = None
-    amp_primer_start_seq: str | None = None
-    amp_primer_end_seq: str | None = None
     amp_primer_start_min_match: int = DEFAULT_MIN_MATCH_LEN
     amp_primer_end_min_match: int = DEFAULT_MIN_MATCH_LEN
     error_primer_start_len: int | None = None
@@ -123,6 +124,11 @@ class RefConfig(BaseModel):
     subread_start: int | None = None
     subread_end: int | None = None
     next_n: int | None = None
+
+    @field_validator("amp_primer_start_len", "amp_primer_end_len", mode="after")
+    @classmethod
+    def _zero_len_is_unset(cls, v: int | None) -> int | None:
+        return v if (v is None or v > 0) else None
 
 
 def parse_config(path: Path) -> dict[str, RefConfig]:
@@ -170,9 +176,42 @@ def parse_config(path: Path) -> dict[str, RefConfig]:
     return refs
 
 
+def _fetch_ap_windows(
+    fasta: pysam.FastaFile,
+    name: str,
+    header_len: int,
+    start_len: int,
+    end_len: int,
+) -> tuple[bytes, bytes]:
+    """Fetch the (start, end) AP needle windows for one reference.
+
+    Both windows are uppercased (soft-masked FASTA tolerated). The FASTA
+    length must equal the BAM-header length, else the needles would target a
+    different reference than the one the reads aligned to.
+    """
+    try:
+        fasta_len = fasta.get_reference_length(name)
+    except KeyError as exc:
+        raise ValueError(
+            f"AP config reference {name!r} is absent from the FASTA — cannot derive "
+            f"the amplicon primer windows. Fix the config or the FASTA."
+        ) from exc
+    if fasta_len != header_len:
+        raise ValueError(
+            f"AP config reference {name!r}: FASTA length {fasta_len} != BAM-header "
+            f"length {header_len}. The reads aligned to a different reference than "
+            f"the FASTA supplies; the derived primer windows would be wrong."
+        )
+    start_window = fasta.fetch(name, 0, start_len).upper().encode()
+    end_window = fasta.fetch(name, fasta_len - end_len, fasta_len).upper().encode()
+    return start_window, end_window
+
+
 def build_params(
     refs: dict[str, RefConfig],
     header_ref_lengths: dict[str, int],
+    fasta: pysam.FastaFile | None = None,
+    want_ap: bool = False,
 ) -> AllConfigParams:
     """Join per-ref CSV config with BAM-header ``seq_len`` into resolved params.
 
@@ -181,6 +220,10 @@ def build_params(
     warned about, since at thousands of refs that mismatch is likely. Sub-read
     and NB do not require ``seq_len`` here (sub-read resolves against the
     per-read header length later; NB fetches against the FASTA).
+
+    AP needles are the reference FASTA windows, so AP resolution needs
+    ``fasta`` when the caller requests AP (``want_ap``). Without ``want_ap``,
+    AP is skipped entirely — no fetch, no validation.
     """
     missing = [name for name in refs if name not in header_ref_lengths]
     if missing:
@@ -211,19 +254,48 @@ def build_params(
                 primer_end_len=ref.tc_primer_end_len,
             )
 
-        # AP
+        # AP (needles = reference FASTA windows)
         if (
-            seq_len is not None
+            want_ap
+            and seq_len is not None
             and ref.amp_primer_start_len is not None
             and ref.amp_primer_end_len is not None
-            and ref.amp_primer_start_seq is not None
-            and ref.amp_primer_end_seq is not None
         ):
+            if fasta is None:
+                raise ValueError(
+                    f"AP was requested and reference {name!r} declares amp_primer_*_len, "
+                    f"but no reference FASTA is open. AP needles are the reference "
+                    f"windows ref[0:amp_primer_start_len] / ref[-amp_primer_end_len:] — "
+                    f"pass --fasta (samtools faidx-indexed)."
+                )
+            if ref.amp_primer_start_min_match < 1 or ref.amp_primer_end_min_match < 1:
+                raise ValueError(
+                    f"Reference {name!r}: amp_primer_*_min_match must be >= 1 "
+                    f"(got start={ref.amp_primer_start_min_match}, "
+                    f"end={ref.amp_primer_end_min_match})."
+                )
+            if ref.amp_primer_start_len < ref.amp_primer_start_min_match:
+                raise ValueError(
+                    f"Reference {name!r}: amp_primer_start_len "
+                    f"({ref.amp_primer_start_len}) < amp_primer_start_min_match "
+                    f"({ref.amp_primer_start_min_match}) — the start window can never "
+                    f"match. Raise the len or lower the min_match."
+                )
+            if ref.amp_primer_end_len < ref.amp_primer_end_min_match:
+                raise ValueError(
+                    f"Reference {name!r}: amp_primer_end_len "
+                    f"({ref.amp_primer_end_len}) < amp_primer_end_min_match "
+                    f"({ref.amp_primer_end_min_match}) — the end window can never "
+                    f"match. Raise the len or lower the min_match."
+                )
+            start_window, end_window = _fetch_ap_windows(
+                fasta, name, seq_len, ref.amp_primer_start_len, ref.amp_primer_end_len
+            )
             ap[name] = ApParams(
                 primer_start_end_pos=ref.amp_primer_start_len - 1,
                 primer_end_start_pos=seq_len - ref.amp_primer_end_len,
-                primer_start_seq=ref.amp_primer_start_seq.upper().encode(),
-                primer_end_seq=ref.amp_primer_end_seq.upper().encode(),
+                primer_start_seq=start_window,
+                primer_end_seq=end_window,
                 primer_start_min_match=ref.amp_primer_start_min_match,
                 primer_end_min_match=ref.amp_primer_end_min_match,
             )
@@ -260,6 +332,8 @@ def build_params(
 def load_config(
     config_path: Path | None,
     header_ref_lengths: dict[str, int],
+    fasta: pysam.FastaFile | None = None,
+    want_ap: bool = False,
 ) -> AllConfigParams:
     """Load config from CSV (if given) and resolve against BAM-header lengths.
 
@@ -270,4 +344,4 @@ def load_config(
     if config_path is None:
         return AllConfigParams()
     refs = parse_config(config_path)
-    return build_params(refs, header_ref_lengths)
+    return build_params(refs, header_ref_lengths, fasta=fasta, want_ap=want_ap)

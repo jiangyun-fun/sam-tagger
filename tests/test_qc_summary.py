@@ -120,8 +120,6 @@ def test_qc_summary_ap_all_statuses(tmp_path: Path) -> None:
         "seq1": {
             "amp_primer_start_len": 8,
             "amp_primer_end_len": 8,
-            "amp_primer_start_seq": "ACGTACGT",
-            "amp_primer_end_seq": "ACGTACGT",
         }
     }
     sam = (
@@ -130,10 +128,15 @@ def test_qc_summary_ap_all_statuses(tmp_path: Path) -> None:
         f"start\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'ACGTACGT' + 'T' * 20}\t{Q * 28}\n"
         f"end\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{'T' * 20 + 'ACGTACGT'}\t{Q * 28}\n"
     )
-    setup = setup_env(tmp_path, cfg, HDR_1_28, sam)
+    setup = setup_env(tmp_path, cfg, HDR_1_28, sam, fasta={"seq1": "ACGT" * 7})
     assert setup.config_path is not None
     out = tmp_path / "qc.parquet"
-    run_qc_summary(QcSummaryArgs(input_bam=setup.input_bam, output=out, config=setup.config_path))
+    run_qc_summary(
+        QcSummaryArgs(
+            input_bam=setup.input_bam, output=out, config=setup.config_path,
+            fasta=setup.fasta_path,
+        )
+    )
 
     qc = _read_qc(out)
     row = qc["seq1"]

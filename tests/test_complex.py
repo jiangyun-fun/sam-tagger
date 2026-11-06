@@ -49,14 +49,13 @@ def test_complex_multi_feature_run(tmp_path: Path) -> None:
             "tc_primer_end_len": 5,
             "amp_primer_start_len": 9,
             "amp_primer_end_len": 7,
-            "amp_primer_start_seq": "GGGGGGGGG",
-            "amp_primer_end_seq": "CCCCCCC",
         },
     }
     s_full = "ACGT" * 7  # 28
     s_off = "A" * 10 + "G" + "C" * 17  # 28 (10M + 1I + 17M)
     s_both = "G" * 9 + "T" * 10 + "C" * 7  # 26 (both primers)
     s_soft = "N" * 5 + "G" * 9 + "T" * 6 + "C" * 6  # 26 (5S + 15M + 6S)
+    ref_seq2 = "G" * 9 + "T" * 10 + "C" * 7  # seq2 reference: the two primer windows
     sam = (
         f"s1_full\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{s_full}\t{Q * 28}\tcs:Z::28\n"
         f"s1_off\t0\tseq1\t1\t60\t10M1I17M\t*\t0\t0\t{s_off}\t{Q * 28}\tcs:Z::10+g:17\n"
@@ -64,7 +63,7 @@ def test_complex_multi_feature_run(tmp_path: Path) -> None:
         f"s2_soft\t0\tseq2\t3\t60\t5S15M6S\t*\t0\t0\t{s_soft}\t{Q * 26}\tcs:Z::15\n"
         "u1\t4\t*\t0\t0\t*\t*\t0\t0\t*\t*"
     )
-    setup = setup_env(tmp_path, cfg, HDR_28_26, sam)
+    setup = setup_env(tmp_path, cfg, HDR_28_26, sam, fasta={"seq2": ref_seq2})
     flp = tmp_path / "fl.parquet"
     tcp = tmp_path / "tc.parquet"
     app_ = tmp_path / "ap.parquet"
@@ -87,6 +86,7 @@ def test_complex_multi_feature_run(tmp_path: Path) -> None:
             extract_left_softclip_fastq=left,
             extract_right_softclip_fastq=right,
             config=setup.config_path,
+            fasta=setup.fasta_path,
         )
     )
 

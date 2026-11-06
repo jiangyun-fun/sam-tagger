@@ -65,7 +65,10 @@ class AnnotateArgs:
     ] = None
     fasta: Annotated[
         Path | None,
-        Parameter(help="Indexed reference FASTA (samtools faidx). Required for --add-nb."),
+        Parameter(
+            help="Indexed reference FASTA (samtools faidx). Required for --add-nb "
+            "and --add-ap/--ap-stats (AP needles are the reference windows)."
+        ),
     ] = None
     output_format: Annotated[
         Literal["bam", "cram", "sam"],
@@ -315,6 +318,13 @@ class QcSummaryArgs:
             help="CSV config (tc/amp/error primer params). Omit to compute FL + read counts only.",
         ),
     ] = None
+    fasta: Annotated[
+        Path | None,
+        Parameter(
+            help="Indexed reference FASTA — required when the config declares "
+            "amp_primer_*_len (AP needles are the reference windows)."
+        ),
+    ] = None
     length_dist_out: Annotated[
         Path | None,
         Parameter(
@@ -337,8 +347,9 @@ def qc_summary(args: Annotated[QcSummaryArgs, Parameter(name="")]) -> None:
     ap_neither, mismatches, insertions, deletions, aligned_bases, error_rate.
     Every *_rate is a fraction in [0, 1]. effective_len = ref_len -
     tc_primer_start_len - tc_primer_end_len (null without TC config);
-    efficiency = on_target_rate ** (1/effective_len). Without --config,
-    only the read-count, strand, and FL columns are computed.
+    efficiency = on_target_rate ** (1/effective_len). AP needles are the
+    reference FASTA windows, so amp-primer configs also need --fasta.
+    Without --config, only the read-count, strand, and FL columns are computed.
     """
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_qc_summary

@@ -38,6 +38,7 @@ def annotate_args(setup: Setup, **kwargs: object) -> AnnotateArgs:
         input_bam=setup.input_bam,
         output_bam=setup.output_bam,
         config=setup.config_path,
+        fasta=setup.fasta_path,
         **kwargs,  # type: ignore[arg-type]
     )
 
@@ -152,12 +153,12 @@ class TestTagging:
         assert "TC" not in tags["off_target_del_span_start"]
 
     def test_amplicon_primer_ap_tagging(self, tmp_path: Path) -> None:
+        # seq2 reference: start primer G*9 + body T*10 + end primer C*7 (26 bp).
+        ref_seq2 = "GGGGGGGGG" + "T" * 10 + "CCCCCCC"
         cfg = {
             "seq2": {
                 "amp_primer_start_len": 9,
                 "amp_primer_end_len": 7,
-                "amp_primer_start_seq": "GGGGGGGGG",
-                "amp_primer_end_seq": "CCCCCCC",
                 "amp_primer_start_min_match": 9,
                 "amp_primer_end_min_match": 7,
             }
@@ -170,7 +171,7 @@ class TestTagging:
             "start_fails_min_match\t0\tseq2\t1\t60\t26M\t*\t0\t0\tGGGGGGGGXTTTTTTTTTTCCCCCCC\t*\tcs:Z:=8*ga:17\n"
             "end_in_softclip_fail\t0\tseq2\t1\t60\t19M6S\t*\t0\t0\tGGGGGGGGGTTTTTTTTCCCCCCCC\t*\tcs:Z::19"
         )
-        setup = setup_env(tmp_path, cfg, H_SEQ2_26, sam_records)
+        setup = setup_env(tmp_path, cfg, H_SEQ2_26, sam_records, fasta={"seq2": ref_seq2})
         run_annotate(annotate_args(setup, add_ap="AP"))
 
         tags = get_bam_tags_as_string(setup.output_bam)

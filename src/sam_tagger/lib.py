@@ -167,6 +167,12 @@ def _validate_annotate(args: AnnotateArgs, cfg: AllConfigParams) -> None:
     if args.output_format == "cram" and args.fasta is None:
         raise ValueError("annotate: --output-format cram requires --fasta.")
 
+    if (args.add_ap is not None or args.ap_stats is not None) and args.fasta is None:
+        raise ValueError(
+            "annotate: --add-ap/--ap-stats require --fasta "
+            "(AP needles are the reference windows)."
+        )
+
     if (args.add_tc is not None or args.tc_stats is not None) and cfg.tc is None:
         raise ValueError(
             "annotate: --add-tc/--tc-stats require a config with tc_primer_start_len "
@@ -174,8 +180,8 @@ def _validate_annotate(args: AnnotateArgs, cfg: AllConfigParams) -> None:
         )
     if (args.add_ap is not None or args.ap_stats is not None) and cfg.ap is None:
         raise ValueError(
-            "annotate: --add-ap/--ap-stats require a config with amp_primer_*_len "
-            "and amp_primer_*_seq."
+            "annotate: --add-ap/--ap-stats require a config with amp_primer_start_len "
+            "and amp_primer_end_len."
         )
     if args.extract_sub_reads_fastq is not None and cfg.sub_read is None:
         raise ValueError(
@@ -196,17 +202,18 @@ def run_annotate(args: AnnotateArgs) -> None:
         bam_reader = stack.enter_context(closing(_open_reader(args.input_bam)))
         header_refs = _header_refs(bam_reader)
         ref_lengths = dict(header_refs)
-        cfg = load_config(args.config, ref_lengths)
-        _validate_annotate(args, cfg)  # raises before any output file is opened
 
-        logger.info("--- annotate: initialization ---")
-        need_fasta = args.fasta is not None and (
-            args.add_nb is not None or args.nb_stats is not None
-        )
+        ap_requested = args.add_ap is not None or args.ap_stats is not None
+        nb_requested = args.add_nb is not None or args.nb_stats is not None
+        need_fasta = args.fasta is not None and (ap_requested or nb_requested)
         faidx_reader = (
             stack.enter_context(closing(pysam.FastaFile(str(args.fasta))))
             if need_fasta else None
         )
+        cfg = load_config(args.config, ref_lengths, fasta=faidx_reader, want_ap=ap_requested)
+        _validate_annotate(args, cfg)  # raises before any output file is opened
+
+        logger.info("--- annotate: initialization ---")
 
         def _maybe_gzip(path: Path | None):
             return stack.enter_context(closing(gzip.open(path, "wt"))) if path else None
@@ -514,14 +521,22 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
     """Single pass: emit one per-reference QC summary Parquet row (read-only).
 
     Joins FL (always, header length), TC + per-base error (need cs + config), and
-    AP (need config) into one row per BAM-header reference. With no ``--config``,
-    only ``total_reads``/``fl``/``fl_rate`` are populated.
+    AP (need config + ``--fasta`` — the needles are reference windows) into one
+    row per BAM-header reference. With no ``--config``, only
+    ``total_reads``/``fl``/``fl_rate`` are populated.
     """
     bam_reader = _open_reader(args.input_bam)
+    faidx_reader = (
+        pysam.FastaFile(str(args.fasta))
+        if (args.config is not None and args.fasta is not None)
+        else None
+    )
     try:
         header_refs = _header_refs(bam_reader)
         ref_lengths = dict(header_refs)
-        cfg = load_config(args.config, ref_lengths)
+        cfg = load_config(
+            args.config, ref_lengths, fasta=faidx_reader, want_ap=args.config is not None
+        )
         error_collector = ErrorStatsCollector(cfg.error) if cfg.error is not None else None
         qc = QcSummaryCollector(ref_lengths, tc_params=cfg.tc)
         length_dist = (
@@ -585,5 +600,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
         qc.write_results(args.output, error_collector)
     finally:
         bam_reader.close()
+        if faidx_reader is not None:
+            faidx_reader.close()
 
     logger.info("qc-summary complete. Output written to {}", args.output)
