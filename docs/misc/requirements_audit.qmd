@@ -708,3 +708,140 @@ Files: updated `src/sam_tagger/{cli,lib}.py`, `stats/error_stats.py`,
 entry. Packages: `sam-tagger-0.7.0-py_0.conda` deployed to the sibio
 channel (noarch). Git: main `1ade8e1..cecfb73` (4 commits) + tag `v0.7.0`
 deleted and re-cut at `cecfb73`; conda-recipes `06cfc69`.
+
+## Trace the PoolA-1 position-20 mismatch row in the go00011 error table
+
+```
+level: medium
+date: 2026-11-04
+```
+
+### description
+
+Explain how the error.parquet row (PoolA-1, position 20, mismatch=14,
+to_a..to_t all 0) was generated in the go00011 S259 run, and identify
+the 14 reads that contribute the 14 mismatches.
+
+### result
+
+1. Answered: the row tallies 14 cs `*gn` ops at PoolA-1:20 (ref G, read N); to_a..to_t stay 0 because a read-base N has no to_* column (error_stats.py:387-398).
+2. Answered: the 14 mismatches come from 14 distinct forward primary reads (mapq 60), listed in the reply; each carries merged base N at Q2 at that position.
+3. Answered: each N is a pairloom unresolved mate discordance — R1 calls T/C at Q37, R2 calls G (ref) at Q37; gap 0 < min_quality_difference 5, so merge.py:267 writes N at Q2.
+4. Answered: position 20 is the first base after the 19-nt amp primer; on PoolA-1, 1470/1624 (90.5%) mismatches are such N calls, so the position is not special in kind.
+
+### change
+
+None (read-only debug turn; helper scripts live in /tmp/samtagger_debug/).
+
+## Trace the units.merged.bam pair for read 24251 to a bwa-mem2 placement defect
+
+```
+level: high
+date: 2026-11-04
+```
+
+### description
+
+Debug how the flag-99/147 record pair for A00133:1626:HWV72DSXF:1:1111:16830:24251
+was generated in GO00011-SS_S259.units.merged.bam, including the odd fields
+(RNEXT *, PNEXT 0, TLEN 0, AS 108 with NM 76).
+
+### result
+
+1. Answered: S24_1 (samtools merge, single U1 unit) copied the pair; S23 reassign_refs.py rebuilt both records — mate fields dropped by design (line 129-130), all other fields copied verbatim from bwa-mem2.
+2. Answered: the fastq pair is fully concordant (fq1 == PoolA-1:2-109 fwd; fq2 == rc(fq1)); the R2 record is a correct perfect alignment at POS 2 (NM 0).
+3. Found: bwa-mem2 (conda 2.3, self-report 2.2.1) misplaces forward reads whose true window starts at ref pos 2-4 — emits POS 1 with wrong MD/NM (76 MM) but the true AS/MAPQ; reproduced SE, avx2+avx512bw, single-seq index; 38-nt padding cures it.
+4. Found: 27 R1 records in the run carry the defect (fwd, POS 1, NM>=20); the 14 PoolA-1:20 N-reads are all among them — PoolA-1's 1470 N-mismatches = 14 pairs x ~105 positions.
+5. Noted: this build stores reverse-strand SEQ revcomp'd (reference orientation), so both records carry identical SEQ; downstream tools must not revcomp twice.
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`.
+Packages / Environments / Git: None.
+
+## evaluate removing amp_primer_*_seq config columns in favor of FASTA-derived AP needles
+
+```
+level: high
+date: 2026-11-06
+```
+
+### description
+
+The user proposed removing `amp_primer_start_seq`/`amp_primer_end_seq`
+from the sam-tagger config and deriving the AP needle from the reference
+FASTA window, claiming the seq columns always equal
+`ref_seq[0:amp_primer_start_len-1]` / the end window in practice, and asked
+for an evidence-based independent assessment.
+
+### result
+
+1. Answered: agreed with removal, with conditions — the claim was verified
+   empirically (88,003/88,003 rows across the two ecsngsqc projects carrying
+   `config/seq_info.csv`; start/end seq equal the sequence-column windows in
+   every row; no degenerate bases, no partial configs; lens 18-19).
+2. Found: the columns are derived by construction — ecsngsqc
+   `prepare_wc.py:148-172` slices them from the `sequence` column, and the
+   alignment FASTA equals that same column (103/103 records checked).
+3. Found: the migration window is open — ecsngsqc S31 still calls the old
+   `bam_tagger` with `amplification_primer_*` column names, so a schema
+   change now rides the already-forced config rename.
+4. Answered: scope of the change — annotate gains a mandatory `--fasta`
+   when AP is requested, and qc-summary (which re-runs
+   `check_amplicon_primers` via lib.py:571-579 and has no fasta argument
+   today) needs one added; needle resolution centralizes in
+   `build_params`; hard-validate `amp_primer_*_len >= *_min_match`.
+5. Noted: the fuzzy any-7bp-substring match makes FASTA needles verdict-
+   equivalent even for tailed or sparsely-mismatched primers; only densely
+   divergent termini (barcodes) lose support — zero occurrences in-domain.
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`.
+Packages / Environments / Git: None.
+
+## implement AP needles from reference FASTA and release 0.8.0 to sibio
+
+```
+level: high
+date: 2026-11-06
+```
+
+### description
+
+Following the approved design review, remove the
+`amp_primer_start_seq`/`amp_primer_end_seq` config columns, derive the AP
+needles from the reference FASTA windows, validate the geometry loudly,
+bump to 0.8.0, and release the conda package to the sibio channel.
+
+### result
+
+1. Implemented: `build_params(fasta, want_ap)` fetches uppercased
+   reference windows; annotate opens the faidx reader before config load;
+   qc-summary gained `--fasta` (required for amp configs).
+2. Implemented: five hard validations — AP without fasta, len below
+   min_match, min_match below 1, ref absent from FASTA, FASTA/header
+   length mismatch; non-positive amp lens coerce to unset.
+3. Fixed: configs with amp columns but no AP flags no longer compute and
+   discard AP per read.
+4. Verified: 170 tests passed (baseline 160), ruff clean, pyright clean,
+   CLI smoke run correct on a 4-read fixture; the min-match validation
+   rejected a config 0.7.0 would have accepted silently.
+5. Released: pushed main + tag `v0.8.0` (workflow attached the sdist),
+   conda-recipes meta.yaml bumped to 0.8.0 with the release sha256,
+   `sam-tagger-0.8.0-py_0.conda` built, deployed to sibio, and verified
+   client-side with `pixi search`.
+
+### change
+
+Files (sam-tagger): updated `src/sam_tagger/{config,lib,cli}.py`,
+`tests/{test_config,test_integration,test_complex,test_qc_summary,test_validation}.py`,
+`config.example.csv`, `README.md`, `docs/usage.qmd`, `pyproject.toml`,
+`pixi.toml`, `src/sam_tagger/__init__.py`, `docs/misc/*`; created
+`docs/plans/20261106-103044_ap-needles-from-fasta.plan.qmd`,
+`docs/plans/20261106-105200_ap-needles-from-fasta.report.qmd`.
+Files (conda-recipes): updated `recipes/sam-tagger/meta.yaml`.
+Git: sam-tagger commits 6dddc80, ab6a924, 953c93f (pushed with tag
+v0.8.0); conda-recipes commit 56948b9.
+Packages/Environments: added `noarch/sam-tagger-0.8.0-py_0.conda` to the
+sibio channel (built via conda-recipes pixi build-linux; no new envs).

@@ -5,16 +5,28 @@ author: "Yun Jiang"
 
 ## next
 
-1. M: wps_1012 adopts v0.7.x (env pin): add error-stats `--fasta`, migrate
-   qc-summary `_pct` column reads to `_rate`, and switch the S37_1
-   explicit-flags workaround to `--prefix`.
+1. M: ecsngsqc migration to sam-tagger must target 0.8.0: drop the
+   `amplification_primer_*_seq` columns from the generated config (rename to
+   `amp_primer_*` in the same change) and pass `--fasta` to the AP rules (S31
+   annotate + any qc-summary call).
+2. M: wps_1012 adopts v0.8.x (env pin): add error-stats `--fasta` and AP-rule
+   `--fasta`, migrate qc-summary `_pct` column reads to `_rate`, and switch the
+   S37_1 explicit-flags workaround to `--prefix`.
 
 ## recommendation
 
-1. M: submit sam-tagger 0.7.0 to bioconda — the meta.yaml is sha256-ready;
-   use the upload-to-bioconda skill.
-2. L: on future releases, expect the release workflow to auto-create the
+1. H: ecsngsqc: drop or repair the 27 misplaced R1 records (fwd, POS 1,
+   NM>=20, AS~len — e.g. at S23) — they manufacture the N-heavy error
+   profile reported as mismatches.
+2. M: report the bwa-mem2 placement defect upstream with the local repro
+   recipe (fwd read, true window at ref pos 2-4 -> POS 1 + wrong MD/NM +
+   kept AS; scripts in /tmp/samtagger_debug/).
+3. M: add a `to_n` column (or N split) to error.parquet so pairloom-
+   unresolved N calls stay separable from true substitutions.
+4. M: submit sam-tagger 0.8.0 to bioconda — recipes/sam-tagger/meta.yaml is
+   updated with the v0.8.0 sha256; use the upload-to-bioconda skill.
+5. L: on future releases, expect the release workflow to auto-create the
    GitHub release on tag push — use `gh release edit` for curated notes
    instead of `create`.
-3. L: run `ruff format` on changed files only — the repo is not format-clean
+6. L: run `ruff format` on changed files only — the repo is not format-clean
    under the current ruff, and blanket runs rewrite unrelated files.

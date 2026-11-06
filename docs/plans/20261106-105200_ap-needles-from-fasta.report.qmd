@@ -1,0 +1,784 @@
+---
+title: "Report: derive AP needles from reference FASTA windows (0.8.0)"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+---
+
+## feature
+
+### AP needles now derive from the reference FASTA windows
+
+```
+level: high
+```
+
+#### reason
+
+The full test suite (170 passed) pins the derivation, the integration tests reproduce all four AP buckets from FASTA-only configs, and a live CLI run produced the expected tags on a real BAM.
+
+#### description
+
+```
+type: [text, table]
+```
+
+1. `build_params` fetches the needles `ref[0:amp_primer_start_len]` and `ref[-amp_primer_end_len:]` from the faidx-indexed reference when AP is requested (`want_ap`).
+2. Both windows are uppercased, so soft-masked FASTA input works.
+3. `annotate` opens the FASTA before config resolution; `qc-summary` gained a `--fasta` argument and requires it when the config declares amp lens.
+4. A config with amp columns but no AP flags no longer computes AP at all — the old code computed and discarded it every read.
+5. Verdicts on the smoke fixture:
+
+| read | AP tag | why |
+|---|---|---|
+| r1_on_full (perfect 30M) | both | both windows present |
+| r2_off_full (mismatch at pos 9) | both | 8-bp start window unaffected |
+| r3_not_full (20M from pos 1) | start_only | no aligned bases in the end region |
+| r4_unmapped | no tag | unmapped records skipped |
+
+#### before
+
+The AP needles came from the `amp_primer_start_seq`/`amp_primer_end_seq` config columns. A reference missing any one of the four `amp_primer_*` fields silently skipped AP. Every run with an amp-configured reference computed AP even when no AP output was requested.
+
+#### after
+
+The two seq columns are gone; a legacy config carrying them fails with an unknown-column error. The needles are single-sourced from the FASTA the reads aligned to. AP runs need `--fasta`; `qc-summary` with an amp config needs it too.
+
+#### evidence
+
+```
+level: high
+type: [text, statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/config.py:222-258` (`_fetch_ap_windows` + AP branch of `build_params`), `src/sam_tagger/lib.py:193-213` (annotate reorder), `src/sam_tagger/lib.py:513-534` (qc-summary fasta).
+- Tests: `tests/test_integration.py:155-183` (four buckets from a FASTA-only config), `tests/test_qc_summary.py:118-147`, `tests/test_complex.py:44-90`; suite result `170 passed in 2.21s`.
+- CLI smoke run output: `ap2.parquet` counts `both=2, start_only=1, neither=0, end_only=0`; tags per read as in the table above.
+
+:::
+
+### hard validation of AP geometry at config resolution
+
+```
+level: high
+```
+
+#### reason
+
+Each violation mode has a dedicated test that fails without the validation, and the min-match check caught a real trap in a hand-written config during this session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. AP requested without `--fasta` → `ValueError` naming the flag.
+2. `amp_primer_*_len < amp_primer_*_min_match` → `ValueError` naming the reference and fields.
+3. `amp_primer_*_min_match < 1` → `ValueError`.
+4. AP-configured reference absent from the FASTA → `ValueError`.
+5. FASTA length != BAM-header `LN` → `ValueError`.
+6. A non-positive `amp_primer_*_len` cell means "unset" (the ecsngsqc generator writes 0 for unconfigured refs).
+
+#### before
+
+A seq column shorter than `min_match` made `contains_primer` return False for every read — all reads reported `neither`, with no error. A missing seq cell silently skipped AP for that reference.
+
+#### after
+
+Every geometry error fails loudly before any output file is written. The 0-len convention is documented in the config model and the usage page.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_config.py:166-201` (five validation tests), `tests/test_validation.py:42-57` (annotate AP without config/without fasta), `tests/test_validation.py` (`test_qc_summary_ap_config_without_fasta_raises`).
+- Live catch: the session's first demo config used `amp_primer_end_len=6` with the default min-match 7; the new validation rejected it with `amp_primer_end_len (6) < amp_primer_end_min_match (7)` — under 0.7.0 the same config silently reported `end_only=0` for every read.
+
+:::
+
+## fix
+
+None
+
+## limitation
+
+### densely divergent primer termini are no longer expressible
+
+```
+level: high
+```
+
+#### reason
+
+The needle is by definition the reference window, so a design whose terminal region differs densely from the reference (fewer than `min_match` consecutive agreeing bases, e.g. a barcode region at the terminus) cannot be configured. Zero such designs exist in the verified ecsngsqc corpus.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Tailed or sparsely mismatched primers still resolve identically: the fuzzy any-`min_match`-bp substring rule tolerates them, and soft-clipped tails never enter the haystack.
+2. Only dense divergence loses support; such termini would make AP a wrong tool anyway.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/processing.py:234-245` (`contains_primer` fuzzy window rule, unchanged).
+- Corpus check: 88,003/88,003 rows have primer == reference window; no degenerate bases.
+
+:::
+
+### annotate requires --fasta for AP output
+
+```
+level: high
+```
+
+#### reason
+
+The needles must be fetched from the reference, so the FASTA is a hard input dependency for AP — stated in the CLI help and enforced before any output opens.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `--add-ap`/`--ap-stats` without `--fasta` fail with a clear message.
+2. Non-AP annotate runs are unaffected; the FASTA opens only when AP or NB request it.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/lib.py:167-172` (fasta precondition), `src/sam_tagger/cli.py:66-72` (help text).
+- `tests/test_validation.py::test_annotate_ap_without_fasta_raises`.
+
+:::
+
+## caveat
+
+### a non-positive amp_primer_*_len cell is silently treated as unset
+
+```
+level: medium
+```
+
+#### reason
+
+The coercion is intentional (matching the ecsngsqc 0-means-unset convention) but silent: a typo of, say, `-9` would disable AP for that reference without an error. Documented in two places, but a reader of the CSV alone would not know.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The pydantic validator maps values <= 0 to `None`.
+2. TC and error lens keep their old semantics (0 is a value, not unset) — an inconsistency inherited from 0.7.0, unchanged here.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/config.py:126-129` (`_zero_len_is_unset`), `tests/test_config.py::test_parse_config_zero_amp_len_is_unset`.
+- ecsngsqc writes 0 for unset: `ecsngsqc_0902/snakemake/src/ecsngsqc/prepare_wc.py:144-146`.
+
+:::
+
+### upgraders must edit legacy configs
+
+```
+level: high
+```
+
+#### reason
+
+The removal is a breaking schema change; 0.8.0 rejects the old columns by design so no stale config passes silently.
+
+#### description
+
+```
+type: [text]
+```
+
+1. A config carrying `amp_primer_start_seq`/`amp_primer_end_seq` fails with `Unknown config column(s)`.
+2. The fix is to delete the two columns and pass `--fasta`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `tests/test_config.py::test_parse_config_rejects_removed_seq_columns`.
+- `docs/usage.qmd` "Configuration" section documents the migration.
+
+:::
+
+## assumption
+
+### ecsngsqc references equal the alignment FASTA in every project
+
+```
+level: medium
+```
+
+#### reason
+
+Verified directly for the two projects that carry `config/seq_info.csv` (103/103 records) and by construction for the rest: the same generator slices both the primer columns and the FASTA from the `sequence` column. The older eleven projects were not checked individually.
+
+#### description
+
+```
+type: [text]
+```
+
+1. If any future project aligns to a FASTA that differs from the design `sequence`, the new length-mismatch check catches it loudly.
+
+#### evidence
+
+```
+level: medium
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- `ref.fa == seq_info.sequence` for 103/103 records of `20260202160942_20251101-YD-2_test`; generator slices at `prepare_wc.py:148-172`.
+- Only 2 of 13 ecsngsqc projects carry `config/seq_info.csv`; the others predate that layout.
+
+:::
+
+### no external consumers of the 0.7 config schema exist
+
+```
+level: medium
+```
+
+#### reason
+
+A scan of `/bioproj/tools/github` found no references to sam-tagger outside its own repo, and ecsngsqc still invokes the old `bam_tagger` script with the pre-rename column names. Public GitHub consumers cannot be ruled out from this machine.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The breaking change therefore lands before the ecosystem migration, as intended.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- ecsngsqc S31 calls `cfg.scripts.bam_tagger` with `amplification_primer_*` columns: `ecsngsqc_0902/snakemake/src/ecsngsqc/rules.py:1014-1032`.
+- Repo scan: no `sam-tagger`/`sam_tagger` hits outside `/bioproj/tools/github/sam-tagger`.
+
+:::
+
+## conclusion
+
+### the redesign shipped, verified, and deployed as 0.8.0
+
+```
+level: high
+```
+
+#### reason
+
+Tests, lint, typecheck, a live CLI run, and a client-resolution check on the deployed channel all passed this session.
+
+#### description
+
+```
+type: [text, statistic]
+```
+
+1. The config schema carries no primer sequences; the FASTA is the single source of needle truth.
+2. Release chain completed: tag `v0.8.0` pushed, release workflow attached the sdist, conda package built (`sam-tagger-0.8.0-py_0.conda`, noarch), deployed to the sibio channel, and `pixi search` resolves it with the intended run deps.
+
+#### evidence
+
+```
+level: high
+type: [text, statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- Suite: `170 passed` (baseline 160), `ruff check .` clean, `pyright` 0 errors.
+- Release workflow run 42152254518 completed `success`; sdist sha256 `25dfc3ab...75283ce` pinned in `conda-recipes/recipes/sam-tagger/meta.yaml` (commit 56948b9).
+- Deploy: `pixi search sam-tagger -c s3://conda/sibio` → `sam-tagger-0.8.0-py_0`; repodata depends: `cyclopts >=3.0, loguru >=0.7, polars >=1.0, pydantic >=2.0, pysam >=0.22, python >=3.13`.
+
+:::
+
+## recommendation
+
+### H: drop or repair the 27 misplaced R1 records in ecsngsqc
+
+```
+level: medium
+```
+
+#### reason
+
+The records manufacture the N-heavy error profile reported as mismatches; the defect is identified and localized in a prior session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. ecsngsqc: drop or repair the 27 R1 records (fwd, POS 1, NM>=20, AS~len — e.g. at S23).
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### M: report the bwa-mem2 POS-1 placement defect upstream
+
+```
+level: medium
+```
+
+#### reason
+
+The repro recipe is complete and local; upstreaming prevents recurrence for other users.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Forward reads with a true window at ref pos 2-4 get POS 1 with wrong MD/NM but true AS/MAPQ; scripts sit in `/tmp/samtagger_debug/`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### M: add a to_n column to error.parquet
+
+```
+level: medium
+```
+
+#### reason
+
+Pairloom-unresolved N calls currently mix into the substitution counts; a `to_n` column or N split keeps them separable.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Add `to_n` (or an N split) to the error-stats mismatch table.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+### M: submit sam-tagger 0.8.0 to bioconda
+
+```
+level: medium
+```
+
+#### reason
+
+The local meta.yaml already carries the v0.8.0 sha256, so the PR is one skill invocation away.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Use the upload-to-bioconda skill with `recipes/sam-tagger/meta.yaml`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `conda-recipes/recipes/sam-tagger/meta.yaml` at commit 56948b9 pins version 0.8.0 and the release sha256.
+
+:::
+
+### L: expect auto-created GitHub releases on tag push
+
+```
+level: high
+```
+
+#### reason
+
+Confirmed again this session: the release workflow created and attached the v0.8.0 release unattended.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Use `gh release edit` for curated notes instead of `create`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Workflow run 42152254518 (tag `v0.8.0`) completed `success` with the sdist attached.
+
+:::
+
+### L: run ruff format on changed files only
+
+```
+level: medium
+```
+
+#### reason
+
+The repo is not format-clean under the current ruff; a blanket run would rewrite unrelated files.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Scope `ruff format` to the files a change touched.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## next
+
+### M: migrate ecsngsqc onto sam-tagger 0.8.0
+
+```
+level: medium
+```
+
+#### reason
+
+The migration window was the deciding argument for the breaking change; it stays open until the pipeline switches.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Drop `amplification_primer_*_seq` from the generated config (rename to `amp_primer_*` in the same change).
+2. Pass `--fasta` to the AP rules (S31 annotate + any qc-summary call).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- S31 still calls the old `bam_tagger` with old column names: `ecsngsqc_0902/snakemake/src/ecsngsqc/rules.py:1014-1032`.
+
+:::
+
+### M: wps_1012 adopts v0.8.x
+
+```
+level: medium
+```
+
+#### reason
+
+Carried forward from the previous rolling state; the 0.8.0 additions (AP `--fasta`) fold into the same adoption pin.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Add error-stats `--fasta` and AP-rule `--fasta`, migrate qc-summary `_pct` column reads to `_rate`, and switch the S37_1 explicit-flags workaround to `--prefix`.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## observation
+
+### the ecsngsqc corpus satisfies primer == reference window universally
+
+```
+level: high
+```
+
+#### reason
+
+Checked programmatically over every row of every project that carries the config, plus a record-level FASTA comparison in one project.
+
+#### description
+
+```
+type: [statistic]
+```
+
+1. 88,003/88,003 rows: `start_seq == sequence[:start_len]` and `end_seq == sequence[-end_len:]`.
+2. No degenerate bases, no partial configs; start lens 18-19, end lens 18.
+3. The alignment FASTA equals the `sequence` column for 103/103 records checked.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- Script output (this session): `rows total=88003, with AP fields=88003, partial=0; start 88003/88003; end 88003/88003; mismatched rows: 0`.
+- Generator slices the columns: `ecsngsqc_0902/snakemake/src/ecsngsqc/prepare_wc.py:148-172`.
+
+:::
+
+### the new min-match validation caught a live silent trap
+
+```
+level: high
+```
+
+#### reason
+
+The first smoke-test config drafted this session used `amp_primer_end_len=6` with the default min-match 7; 0.7.0 would accept it and report `end_only=0` forever, while 0.8.0 rejects it at startup.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The rejected message names the reference and both fields.
+2. This is the failure class the redesign set out to eliminate, caught on its first real input.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Verbatim error: `ValueError: Reference 'seq1': amp_primer_end_len (6) < amp_primer_end_min_match (7) — the end window can never match. Raise the len or lower the min_match.`
+
+:::
+
+## process
+
+### verified the empirical claim before writing the change
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The user's primer-equals-window claim was checked against all 88,003 config rows, the generator source, and the alignment FASTA before any code was written.
+2. This turned a plausible claim into evidence and exposed the 0-means-unset convention in time to design for it.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Verification scripts and outputs from this session (summarized under `## observation`).
+
+:::
+
+### drafted an invalid demo config and let validation catch it
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first smoke config carried `amp_primer_end_len=6` against a 6-bp primer habit from the seq-column era.
+2. The new validation rejected the run — correct behavior, but the draft wasted a cycle.
+3. Better action: derive the demo lens from the reference windows and the min-match default before writing the config.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- The verbatim rejection is quoted under `## observation`.
+
+:::
+
+## change
+
+### mutations across sam-tagger, conda-recipes, and the sibio channel
+
+```
+level: high
+```
+
+#### reason
+
+Every row below is a fact recorded this session — a commit hash, a pushed ref, a channel artifact, or a version string — so confidence is high by construction.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Repo / target | Mutation |
+|---|---|
+| sam-tagger | commits `6dddc80` (feat!: core + tests), `ab6a924` (docs), `953c93f` (release bump) |
+| sam-tagger | pushed `main` (c7729e7..953c93f) and tag `v0.8.0` |
+| conda-recipes | commit `56948b9` (meta.yaml → 0.8.0 + sha256) |
+| sibio channel | added `noarch/sam-tagger-0.8.0-py_0.conda`, reindexed, deployed, verified |
+| version | 0.7.0 → 0.8.0 in `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py` |
+
+1. Files changed in sam-tagger: `src/sam_tagger/{config,lib,cli}.py`, `tests/{test_config,test_integration,test_complex,test_qc_summary,test_validation}.py`, `config.example.csv`, `README.md`, `docs/usage.qmd`, `docs/misc/*`, `docs/plans/20261106-*`.
+2. Packages / environments: none installed; no new pixi or conda envs.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log --oneline -3` in sam-tagger: `953c93f chore(release): bump version to 0.8.0`, `ab6a924 docs:`, `6dddc80 feat!:`.
+- `pixi search sam-tagger -c s3://conda/sibio` → `sam-tagger-0.8.0-py_0`.
+
+:::
+
+## other
+
+None

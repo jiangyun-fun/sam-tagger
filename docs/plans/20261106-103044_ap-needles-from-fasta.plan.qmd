@@ -1,0 +1,103 @@
+---
+title: "Plan: derive AP needles from reference FASTA windows"
+author: "Yun Jiang"
+date: 2026-11-06
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+---
+
+## objective
+
+Drop the `amp_primer_start_seq` / `amp_primer_end_seq` config columns and
+derive the AP check needles from the reference FASTA windows
+(`ref[0:amp_primer_start_len]`, `ref[-amp_primer_end_len:]`), then release
+0.8.0 to the sibio conda channel. Breaking config change → 0.8.0.
+
+## scope
+
+In:
+
+- `src/sam_tagger/config.py` — remove seq fields; `build_params` gains
+  `fasta` + `want_ap`; fetch + uppercase windows; hard validations;
+  non-positive amp lens coerce to unset.
+- `src/sam_tagger/lib.py` — faidx opens before config load in
+  `run_annotate`; `run_qc_summary` gains a fasta reader and closes it.
+- `src/sam_tagger/cli.py` — help texts; `QcSummaryArgs.fasta`.
+- Tests — rewrite AP configs FASTA-driven; add validation + rejection
+  tests; suite 170 passed, ruff clean, pyright clean.
+- Docs — `docs/usage.qmd`, `README.md`, `config.example.csv`.
+- Release — version 0.8.0; tag push; conda-recipes meta.yaml bump;
+  build; sibio sync + deploy + verify.
+
+Out:
+
+- `processing.py` / `ApParams` (needle consumers unchanged).
+- TC/error 0-len semantics (inconsistency inherited from 0.7.0, untouched).
+- cs-derived AP alternative (noted as a possible v2).
+- bioconda PR (recommended separately, not part of this change).
+
+## executed steps (as done)
+
+1. `config.py`: removed the seq fields from `_REF_CONFIG_FIELDS` +
+   `RefConfig`; `_zero_len_is_unset` validator (0 = unset, ecsngsqc
+   convention); `_fetch_ap_windows` uppercases windows and checks FASTA
+   length == header length; `build_params(fasta, want_ap)` resolves AP only
+   when requested, with five hard validations.
+2. `lib.py`: `run_annotate` computes `ap_requested`/`nb_requested`, opens
+   the faidx reader before `load_config`, passes `want_ap`; the
+   AP-without-fasta check moved ahead of config load;
+   `run_qc_summary` opens/closes a fasta reader and passes `want_ap=True`
+   whenever a config is given.
+3. `cli.py`: annotate/qc-summary fasta help text; `QcSummaryArgs.fasta`;
+   docstring notes the fasta requirement.
+4. Tests: `annotate_args` helper wires `fasta=setup.fasta_path`; AP tests
+   build references whose windows are the former primer strings; new tests
+   for window derivation (soft-masked input), the five validations,
+   0-len-unset, legacy-column rejection, and qc-summary fasta wiring.
+5. Docs + version: usage.qmd config table + AP semantics paragraph +
+   examples with `--fasta`; README config block; example CSV minus two
+   columns; 0.8.0 in pyproject/pixi/`__init__`.
+6. Release: pushed main (3 commits) + tag `v0.8.0`; release workflow
+   attached the sdist (sha256 25dfc3ab...75283ce); conda-recipes meta.yaml
+   bumped and built (`sam-tagger-0.8.0-py_0.conda`, noarch); copied to
+   `/bioproj/data/minio/sibio_local/noarch/`; `pixi run index` + `upload`;
+   `pixi search` resolves 0.8.0 with the intended run deps.
+
+## files touched
+
+- sam-tagger: `src/sam_tagger/{config,lib,cli}.py`,
+  `tests/{test_config,test_integration,test_complex,test_qc_summary,test_validation}.py`,
+  `config.example.csv`, `README.md`, `docs/usage.qmd`, version trio,
+  `docs/plans/20261106-*`, `docs/misc/*`.
+- conda-recipes: `recipes/sam-tagger/meta.yaml`.
+- sibio channel: `noarch/sam-tagger-0.8.0-py_0.conda` + repodata.
+
+## risks (as they landed)
+
+- Configs with amp columns but no AP flags no longer compute AP —
+  output-neutral, verified by the suite.
+- 0-len amp lens mean unset — documented; TC/error lens keep old
+  semantics (known inconsistency, unchanged).
+- Soft-masked FASTA uppercased — covered by a soft-masked test fixture.
+- Breaking for legacy configs — loud unknown-column error, documented
+  migration (delete the columns, pass `--fasta`).
+
+## verification
+
+- `pixi run -e dev test`: 170 passed (baseline 160); `ruff check .` clean;
+  `pyright` 0 errors.
+- CLI smoke run on a 4-read fixture: `both=2, start_only=1`, tags per read
+  as expected; the min-match validation rejected an invalid demo config
+  that 0.7.0 would have accepted silently.
+- Release: workflow run 42152254518 success; `pixi search sam-tagger -c
+  s3://conda/sibio` → `sam-tagger-0.8.0-py_0` with deps `cyclopts, loguru,
+  polars, pydantic, pysam, python >=3.13`.
