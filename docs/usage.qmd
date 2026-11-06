@@ -93,7 +93,7 @@ convention the value matches the flag, but you can rename it if needed.
 | `--add-ms`  | `MS`  | Match start (1-based read position)                  | —                    |
 | `--add-me`  | `ME`  | Match end (1-based read position)                    | —                    |
 | `--add-tc`  | `TC`  | On-target (`on_target`) via cs, no errors in primers  | `--config`           |
-| `--add-ap`  | `AP`  | Amplicon primer: `both`/`start_only`/`end_only`/`neither` | `--config`        |
+| `--add-ap`  | `AP`  | Amplicon primer: `both`/`start_only`/`end_only`/`neither` | `--config` + `--fasta` |
 | `--add-ss`  | `SS`  | Start (5′) soft-clip length                           | —                    |
 | `--add-es`  | `ES`  | End (3′) soft-clip length                             | —                    |
 | `--add-dm`  | `DM`  | Sum of M+D CIGAR ops (aligned ref length)            | —                    |
@@ -124,9 +124,9 @@ encode against. Input auto-detects BAM/CRAM/SAM. Use `-` for stdin/stdout.
 # CIGAR-only tags, no config needed
 sam-tagger annotate aln.cs.bam out.bam --add-fl FL --add-ms MS --add-me ME
 
-# Primer-dependent tags require a config
+# Primer-dependent tags require a config; AP also needs --fasta (needles = ref windows)
 sam-tagger annotate aln.cs.bam out.bam \
-    --config primers.csv \
+    --config primers.csv --fasta ref.fa \
     --add-fl FL --add-tc TC --add-ap AP --add-ee EE
 
 # Write CRAM (--fasta mandatory), and add NB (also needs config + fasta)
@@ -136,7 +136,7 @@ sam-tagger annotate aln.cs.bam out.cram --output-format cram \
 
 # Tag the BAM and emit FL + AP statistics alongside
 sam-tagger annotate aln.cs.bam out.bam \
-    --config primers.csv \
+    --config primers.csv --fasta ref.fa \
     --add-fl FL --add-ap AP \
     --fl-stats fl.parquet --ap-stats ap.parquet
 
@@ -308,8 +308,8 @@ computation). Distributions count **primary alignments only** — secondary
 records double-count reads and supplementary records are hard-clip fragments.
 
 ```bash
-# full summary
-sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.csv
+# full summary (amp-primer configs also need --fasta for the AP needles)
+sam-tagger qc-summary aln.cs.bam qc.parquet --config primers.csv --fasta ref.fa
 
 # FL + read counts only (no primer config)
 sam-tagger qc-summary aln.cs.bam qc.parquet
@@ -324,8 +324,8 @@ not in the CSV). Empty cells mean "unset"; unknown columns, duplicate/empty
 `seq_name`, and wrong-typed values are hard errors.
 
 ```csv
-seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_len,amp_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
-seq1,8,8,9,7,GGGGGGGGG,CCCCCCC,5,5,12,21,6
+seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_len,amp_primer_end_len,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+seq1,8,8,9,7,5,5,12,21,6
 150-1-P,,,,,,,,10,10,,
 ```
 
@@ -334,10 +334,25 @@ A complete example ships at [`config.example.csv`](../config.example.csv).
 | Config column                                            | Drives                                    |
 |----------------------------------------------------------|-------------------------------------------|
 | `tc_primer_start_len` / `tc_primer_end_len`              | `--add-tc`, `--tc-stats`                  |
-| `amp_primer_*_len`, `amp_primer_*_seq`                   | `--add-ap`, `--ap-stats`                  |
+| `amp_primer_*_len`, `amp_primer_*_min_match`             | `--add-ap`, `--ap-stats` (needs `--fasta`) |
 | `error_primer_start_len` / `error_primer_end_len`        | `error-stats`                             |
 | `subread_start` / `subread_end`                          | `--extract-sub-reads-fastq`               |
 | `next_n`                                                 | `--add-nb`, `--nb-stats` (needs `--fasta`) |
+
+**AP needles are reference FASTA windows** (since 0.8.0): the start primer
+sequence is `ref[0:amp_primer_start_len]` and the end primer is
+`ref[-amp_primer_end_len:]`, fetched from the `--fasta` at resolve time —
+the former `amp_primer_*_seq` columns are gone (a legacy config carrying
+them fails with an unknown-column error). Both windows are uppercased
+(soft-masked FASTA tolerated); the FASTA length must equal the BAM-header
+`LN` for every AP-configured reference, and `amp_primer_*_len` must be
+`>= amp_primer_*_min_match` — violations are hard errors, as is an
+AP-configured reference absent from the FASTA. A non-positive
+`amp_primer_*_len` cell means "unset". The match itself is fuzzy: a primer
+counts as present when *any* `min_match`-bp window of the read slice over
+the primer region appears as an exact substring of the primer (default
+`min_match` 7) — so tailed or sparsely-mismatched primers still resolve
+the same as exact ones.
 
 `FL` and the CIGAR-only tags need **no** config.
 

@@ -44,12 +44,16 @@ header cannot. Empty cells mean "unset"; unknown columns and duplicate/empty
 `seq_name` are hard errors. See [`config.example.csv`](config.example.csv).
 
 ```csv
-seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_seq,amp_primer_end_seq,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
-seq1,8,8,GGGGGGGGG,CCCCCCC,5,5,12,21,6
+seq_name,tc_primer_start_len,tc_primer_end_len,amp_primer_start_len,amp_primer_end_len,error_primer_start_len,error_primer_end_len,subread_start,subread_end,next_n
+seq1,8,8,9,7,5,5,12,21,6
 ```
 
 `FL` and the CIGAR-only tags need **no config**. Primer-dependent features
 (`TC`, `AP`, `NB`, sub-read extraction, `error-stats`) require a config.
+AP primer sequences are not configured — they are the reference FASTA
+windows (`ref[0:amp_primer_start_len]` / `ref[-amp_primer_end_len:]`), so
+`--add-ap`/`--ap-stats` (and `qc-summary` with an amp config) also need
+`--fasta`.
 
 ## Pipeline placement
 
