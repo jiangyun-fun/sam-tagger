@@ -12,6 +12,8 @@ author: "Yun Jiang"
 2. M: wps_1012 adopts v0.8.x (env pin): add error-stats `--fasta` and AP-rule
    `--fasta`, migrate qc-summary `_pct` column reads to `_rate`, and switch the
    S37_1 explicit-flags workaround to `--prefix`.
+3. M: read the 17:59 (2026-11-16) one-shot cron `c9bc25a4` output — the
+   supplementary-records vs primary-only audit of error-stats metrics.
 
 ## recommendation
 

@@ -1,0 +1,16 @@
+---
+title: "Caveat and Limitation"
+author: "Yun Jiang"
+---
+
+## caveat
+
+1. M: Cron `c9bc25a4` fires at 17:59, not 18:00 — the scheduler's fixed
+   early offset for one-shots pinned to :00.
+2. M: If Claude Code is closed at 17:59, the durable one-shot does not
+   run then; it surfaces for catch-up at the next launch.
+
+## limitation
+
+1. M: This turn scheduled the analysis only; it did not itself examine
+   whether error-stats metrics include supplementary records.

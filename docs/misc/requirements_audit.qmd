@@ -845,3 +845,30 @@ Git: sam-tagger commits 6dddc80, ab6a924, 953c93f (pushed with tag
 v0.8.0); conda-recipes commit 56948b9.
 Packages/Environments: added `noarch/sam-tagger-0.8.0-py_0.conda` to the
 sibio channel (built via conda-recipes pixi build-linux; no new envs).
+
+## schedule one-shot 18:00 cron for supplementary-records metrics audit
+
+```
+level: low
+date: 2026-11-16
+```
+
+### description
+
+Schedule a Claude cron for today 18:00 (2026-11-16) that reads this repo
+and reports whether the metrics besides the errors.parquet `total` column
+use only primary reads or also supplementary records.
+
+### result
+
+1. Implemented: one-shot cron `c9bc25a4` (durable, auto-deletes after
+   firing) with the user's analysis prompt verbatim; the scheduler set
+   the actual fire time to 17:59 (fixed early offset for :00 one-shots).
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
+created `docs/misc/caveat_and_limitation.qmd`; cron persisted to
+`.claude/scheduled_tasks.json` (transient, left uncommitted).
+Packages / Environments / Git: docs commit on main for the three
+`docs/misc/` files; no code changes.
