@@ -12,8 +12,10 @@ author: "Yun Jiang"
 2. M: wps_1012 adopts v0.8.x (env pin): add error-stats `--fasta` and AP-rule
    `--fasta`, migrate qc-summary `_pct` column reads to `_rate`, and switch the
    S37_1 explicit-flags workaround to `--prefix`.
-3. M: read the 17:59 (2026-11-16) one-shot cron `c9bc25a4` output — the
-   supplementary-records vs primary-only audit of error-stats metrics.
+3. M: decide the error-stats/pileup record-universe policy (all mapped
+   records today; only length-dist is primary-only) — filter
+   supplementary/secondary, add a --primary-only opt-in, or keep and
+   document.
 
 ## recommendation
 
@@ -27,8 +29,11 @@ author: "Yun Jiang"
    unresolved N calls stay separable from true substitutions.
 4. M: submit sam-tagger 0.8.0 to bioconda — recipes/sam-tagger/meta.yaml is
    updated with the v0.8.0 sha256; use the upload-to-bioconda skill.
-5. L: on future releases, expect the release workflow to auto-create the
+5. M: document the all-mapped record universe (secondary/supplementary/
+   QC-fail/dup included) for error-stats and pileup in usage.qmd — only
+   the strand counts and length-dist sections state it today.
+6. L: on future releases, expect the release workflow to auto-create the
    GitHub release on tag push — use `gh release edit` for curated notes
    instead of `create`.
-6. L: run `ruff format` on changed files only — the repo is not format-clean
+7. L: run `ruff format` on changed files only — the repo is not format-clean
    under the current ruff, and blanket runs rewrite unrelated files.

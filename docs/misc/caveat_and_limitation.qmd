@@ -9,8 +9,17 @@ author: "Yun Jiang"
    early offset for one-shots pinned to :00.
 2. M: If Claude Code is closed at 17:59, the durable one-shot does not
    run then; it surfaces for catch-up at the next launch.
+3. M: cs-derived metrics count a supplementary/secondary record only when
+   that record carries the `cs` tag — an aligner-dependent input property,
+   not guaranteed by the format.
+4. L: QC-fail (0x200) and duplicate (0x400) records are also included in
+   every metric; no filter for them exists in the codebase.
 
 ## limitation
 
 1. M: This turn scheduled the analysis only; it did not itself examine
    whether error-stats metrics include supplementary records.
+2. M: The 2026-11-16 record-universe audit is static code reading plus
+   existing test assertions; no new BAM fixture was run this turn.
+3. L: The downstream ecsngsqc workflow's interpretation of these columns
+   was not audited.

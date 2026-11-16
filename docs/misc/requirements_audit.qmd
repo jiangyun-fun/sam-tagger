@@ -872,3 +872,36 @@ created `docs/misc/caveat_and_limitation.qmd`; cron persisted to
 `.claude/scheduled_tasks.json` (transient, left uncommitted).
 Packages / Environments / Git: docs commit on main for the three
 `docs/misc/` files; no code changes.
+
+## audit record universe of sam-tagger metrics for supplementary reads
+
+```
+level: medium
+date: 2026-11-16
+```
+
+### description
+
+Scheduled audit (cron c9bc25a4): read the repo and report whether metrics
+other than the error.parquet `total` column use only primary reads or also
+supplementary records.
+
+### result
+
+1. Answered: error-stats tallies every mapped cs-carrying record —
+   supplementary (0x800) and secondary (0x100) included; error.parquet
+   `total` is per-position depth from that universe (lib.py:425-437,
+   error_stats.py:494).
+2. Answered: pileup, qc-summary (total_reads/strand/FL/on_target/AP and
+   the error columns), and the annotate tags/stats all use the same
+   all-mapped universe; QC-fail (0x200) and dup (0x400) are also never
+   filtered (lib.py:261-268, 483-502, 549-594).
+3. Answered: the only primary-only metric is the qc-summary length-dist
+   output (lib.py:558, usage.qmd:306-308); existing tests pin the
+   inclusion behavior (tests/test_qc_summary.py:286-287, 347).
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
+appended `docs/misc/caveat_and_limitation.qmd`.
+Packages / Environments / Git: docs commit on main; no code changes.
