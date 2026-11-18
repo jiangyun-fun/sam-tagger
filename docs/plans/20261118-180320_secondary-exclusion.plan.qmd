@@ -1,0 +1,62 @@
+---
+title: "Exclude secondary records from all metrics"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧬</text></svg>">
+---
+
+## objective
+
+Exclude secondary (0x100) records from every metric in sam-tagger, per the
+2026-11-18 design agreement. Supplementary (0x800) records stay in all
+metrics. Annotate still writes skipped records to its output BAM.
+
+## scope
+
+- `src/sam_tagger/lib.py`: secondary guard in the four record loops
+  (annotate, error-stats, pileup, qc-summary); annotate writes the record
+  before skipping; the length-dist gate simplifies to supplementary-only.
+- `src/sam_tagger/stats/length_dist.py`: docstring reword.
+- `src/sam_tagger/cli.py`: qc-summary docstring gains the exclusion sentence.
+- `docs/usage.qmd`: depth-universe/parity sentence (divergence shrinks to
+  0x200/0x400), strand-counts sentence, length-dist paragraph.
+- `tests/`: update the two pinned tests; add one end-to-end exclusion test
+  (error-stats + pileup + annotate pass-through).
+- Version bump 0.9.0 in `pyproject.toml`, `pixi.toml`, `__init__.py`.
+
+## what happened
+
+1. Wrote this plan, then added the four guards and the docstring edits.
+2. Updated the pinned strand/length-dist tests and added the new test.
+3. First suite run used bare `pixi run test`, which resolves pytest from
+   the global pixi bin (default env declares no pytest) — all 13 files
+   failed at collection. `pixi run which pytest` located the cause; the
+   correct invocation is `pixi run -e dev test`.
+4. Two test-expectation misses (pileup emits one row per position; FL
+   stats zero-fill every header reference) fixed after reading failures.
+5. Reworded `usage.qmd`; bumped 0.9.0; refreshed the default env.
+6. Gates in the dev env: 171 tests passed, ruff clean, pyright 0 errors.
+
+## risks
+
+- Semantic change to published outputs (`total_reads` etc. drop wherever
+  multi-mappers exist) — accepted by design; released as `feat!`.
+- Annotate output BAM stays record-complete; secondary records pass
+  through untagged (0.8.x tagged them).
+
+## verification
+
+- `pixi run -e dev test` → 171 passed (updated + new tests).
+- The samtools-parity test passes unchanged (its fixture has no
+  secondary records).
+- The new test asserts annotate writes secondary records through untagged.

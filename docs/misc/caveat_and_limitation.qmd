@@ -20,6 +20,10 @@ author: "Yun Jiang"
 6. M: the 2026-11-18 secondary-exclusion agreement is design-level; the
    numeric impact on existing datasets was not measured (no BAM scanned
    this turn, and per user instruction pipeline data was not consulted).
+7. M: 0.9.0 outputs shrink wherever secondary records exist — do not mix
+   0.8.x and 0.9.x outputs in cross-version comparisons.
+8. L: annotate output BAMs from 0.9.0 carry no tags on secondary records
+   (0.8.x tagged them) — downstream tag filters see a behavioral change.
 
 ## limitation
 

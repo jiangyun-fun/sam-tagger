@@ -20,3 +20,5 @@ docs/*.html
 docs/*_files/
 docs/plans/*.html
 docs/plans/*_files/
+docs/*.report.html
+docs/plans/*.report.html

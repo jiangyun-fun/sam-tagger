@@ -968,3 +968,43 @@ only.
 Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
 appended `docs/misc/caveat_and_limitation.qmd`.
 Packages / Environments / Git: docs commit on main; no code changes.
+
+## implement secondary-record exclusion and bump 0.9.0
+
+```
+level: high
+date: 2026-11-18
+```
+
+### description
+
+Go-ahead for the agreed design: exclude secondary (0x100) records from
+every metric, keep supplementary (0x800), pass secondary records through
+annotate's output BAM untagged, reword the docs, and bump 0.9.0.
+
+### result
+
+1. Implemented: secondary guards in the four record loops
+   (lib.py:270,431,489,554); annotate writes skipped records; the
+   length-dist gate simplified to supplementary-only.
+2. Implemented: usage.qmd reworded in three places (parity condition now
+   0x200/0x400 only); qc-summary CLI docstring names the universe;
+   version 0.9.0 in pyproject.toml/pixi.toml/__init__.py.
+3. Verified: 171 tests passed (updated strand/length-dist pins + new
+   end-to-end exclusion test), ruff clean, pyright 0 errors; report
+   rendered at docs/plans/20261118-181037_secondary-exclusion.report.qmd.
+4. Fixed along the way: bare `pixi run test` resolves pytest from the
+   global pixi bin (default env declares no pytest) — the suite must run
+   via `pixi run -e dev test`.
+
+### change
+
+Files: updated `src/sam_tagger/{lib,cli}.py`,
+`src/sam_tagger/stats/length_dist.py`, `tests/{test_complex,test_qc_summary}.py`,
+`docs/usage.qmd`, `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py`,
+`.gitignore`; created `docs/plans/20261118-180320_secondary-exclusion.plan.qmd`,
+`docs/plans/20261118-181037_secondary-exclusion.report.qmd`; appended
+`docs/misc/*`.
+Git: commits f835487 (feat!), d9f3172 (docs), cfa0cbc (chore(release):
+0.9.0), plus this docs commit. Not pushed; no tag; no conda build.
+Packages/Environments: none added; default env refreshed via pixi install.

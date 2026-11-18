@@ -12,11 +12,11 @@ author: "Yun Jiang"
 2. M: wps_1012 adopts v0.8.x (env pin): add error-stats `--fasta` and AP-rule
    `--fasta`, migrate qc-summary `_pct` column reads to `_rate`, and switch the
    S37_1 explicit-flags workaround to `--prefix`.
-3. M: implement secondary (0x100) exclusion across annotate/error-stats/
-   pileup/qc-summary tallies — records still pass through annotate's BAM
-   output; update the pinned tests (test_qc_summary.py:266-287, 347) and
-   usage.qmd; supersede the 2026-10-20 pin; bump 0.9.0. Awaiting user
-   go-ahead.
+3. M: pin the suite invocation to the dev env (or add pytest to the
+   default env) — bare `pixi run test` resolves pytest from the global
+   pixi bin and fails at collection.
+4. M: decide whether supplementary (0x800) records count in read-level
+   metrics (total_reads/FL/on_target/AP); base-level metrics keep them.
 
 ## recommendation
 
@@ -28,12 +28,9 @@ author: "Yun Jiang"
    kept AS; scripts in /tmp/samtagger_debug/).
 3. M: add a `to_n` column (or N split) to error.parquet so pairloom-
    unresolved N calls stay separable from true substitutions.
-4. M: submit sam-tagger 0.8.0 to bioconda — recipes/sam-tagger/meta.yaml is
-   updated with the v0.8.0 sha256; use the upload-to-bioconda skill.
-5. M: in the same change, document the post-exclusion record universe in
-   usage.qmd (secondary excluded; supplementary/QC-fail/dup still
-   included) and restate the samtools parity condition for 0x200/0x400
-   only.
+4. M: release 0.9.0 when ready (tag push + conda-recipes bump; the staged
+   0.8.0 bioconda submission — meta.yaml ready — can be superseded by
+   0.9.0 directly); note the feat! semantics change in the notes.
 6. L: on future releases, expect the release workflow to auto-create the
    GitHub release on tag push — use `gh release edit` for curated notes
    instead of `create`.

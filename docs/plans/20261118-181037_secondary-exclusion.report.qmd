@@ -1,0 +1,346 @@
+---
+title: "Exclude secondary records from all metrics — 0.9.0"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+---
+
+## feature
+
+<!-- New capability this task added. -->
+
+### secondary records excluded from every metric
+
+```
+level: high
+```
+
+#### reason
+
+The full suite passes with a new end-to-end test, and the guard sites are
+covered by both updated pinned tests and the new test.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The four record loops now skip secondary (`0x100`) records before any
+   tally or tag work: annotate (`lib.py:270`), error-stats (`lib.py:431`),
+   pileup (`lib.py:489`), and qc-summary (`lib.py:554`).
+2. Annotate still writes secondary records to the output BAM, untagged, so
+   the pass-through stays record-complete.
+3. The qc-summary length-dist gate dropped its own secondary test
+   (`not is_supplementary` alone remains) because the shared loop guard
+   now drops secondary records first.
+4. `usage.qmd` states the new universe in three places, and the
+   qc-summary CLI docstring names it; the version is 0.9.0.
+
+#### before
+
+A read with k secondary placements counted k times in `total_reads`,
+strand, FL, on_target, AP, per-read error counts, and depth. The
+samtools-depth parity held only on BAMs without secondary records.
+
+#### after
+
+Every metric counts each read once, at its primary alignment. The parity
+condition shrinks to QC-fail (`0x200`) and duplicate (`0x400`) records.
+Supplementary (`0x800`) records remain included, as before.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/lib.py:270,431,489,554` — the four guards.
+- New test `tests/test_complex.py::test_secondary_records_excluded_from_metrics_and_passed_through`
+  (per_read total 1, per_base total 28, pileup dp set `{1}`, secondary
+  record written untagged, FL stats `{"seq1": 1, "seq2": 0}`).
+- Suite output: `171 passed in 2.61s`; ruff: `All checks passed!`;
+  pyright: `0 errors, 0 warnings, 0 informations`.
+- Updated pinned tests: `tests/test_qc_summary.py:285-288` (total 3,
+  forward 1, reverse 2) and `tests/test_qc_summary.py:347` (total 4).
+- Commits: `f835487` (feat!), `d9f3172` (docs), `cfa0cbc` (0.9.0 bump).
+
+:::
+
+## fix
+
+None
+
+## assumption
+
+<!-- Unverified premise the work depends on. -->
+
+### samtools depth keeps supplementary and drops secondary by default
+
+```
+level: medium
+```
+
+#### reason
+
+The claim was verified from bam2depth source during an earlier task and is
+recorded in the audit trail, but it was not re-verified against samtools
+source this turn.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The parity benefit of this change rests on samtools depth's default
+   record filter: it drops unmapped, secondary, QC-fail, and duplicate
+   records, and keeps supplementary records.
+2. Given that premise, dropping secondary removes one of sam-tagger's
+   three documented divergence sources, and dropping supplementary would
+   have created a new one.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/misc/requirements_audit.qmd:401` — "samtools semantics verified
+  from cloned source (bam2depth.c line-cited)".
+- `tests/test_integration.py:518-525` — the parity test docstring records
+  the same default-filter claim.
+
+:::
+
+## conclusion
+
+<!-- Interpreted claim: what we now know. -->
+
+### the tool now enforces its own stated principle everywhere
+
+```
+level: high
+```
+
+#### reason
+
+The code, the tests, and the documentation now state the same record
+universe, verified by the suite this turn.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The length-dist rationale ("secondary records double-count reads")
+   now applies to every metric, not only distributions.
+2. The `forward_reads + reverse_reads == total_reads` invariant survives
+   because all three columns share the new guard.
+3. Supplementary records in read-level counts (`total_reads`, FL,
+   on_target, AP) stay included and remain an open design question.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `docs/usage.qmd` — depth-universe, strand-counts, and length-dist
+  sections now carry the same universe statement.
+- `tests/test_qc_summary.py:289-290` — the invariant assertion still
+  holds under the new counts.
+
+:::
+
+## observation
+
+<!-- What was noticed in data or behavior, without interpretation. -->
+
+### bare pixi run test resolves pytest from the global pixi bin
+
+```
+level: high
+```
+
+#### reason
+
+The resolution was verified directly with `pixi run which pytest` this
+session.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `pixi run test` in the default environment ran
+  `/bioproj/tools/share/.pixi/bin/pytest`, not a project-env pytest,
+  because the default environment declares no pytest.
+2. That pytest cannot import `sam_tagger`, so all 13 test files failed at
+   collection with `ModuleNotFoundError`.
+3. `pixi run -e dev test` resolves the dev-env pytest and passes.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `pixi run python -c ...` resolves `.pixi/envs/default/bin/python`;
+  `pixi run which pytest` resolves `/bioproj/tools/share/.pixi/bin/pytest`.
+- `pixi.toml` — pytest is declared only under
+  `[environments.dev.dependencies]`/`[feature.dev.pypi-dependencies]`.
+
+:::
+
+## process
+
+<!-- Audit of a significant action or decision between plan and report. -->
+
+### ran the suite with bare pixi run test first
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. I ran `pixi run test` before checking which environment supplies
+   pytest, and all 13 files failed at collection.
+2. The `ModuleNotFoundError` pointed at a broken install, not the real
+   cause, so one `pixi install` was wasted on a healthy environment.
+3. The better action was to resolve the interpreter first
+   (`pixi run which pytest`), then use `pixi run -e dev test`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Command outputs quoted under `## observation` above.
+
+:::
+
+### shipped the new test with two wrong expectations
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first version expected one pileup row (actual: 28, one per
+   position) and omitted the FL-stats zero-fill row for a header-only
+   reference.
+2. Both misses came from writing expectations without reading the
+   writers' output contracts first.
+3. The better action was to model the assertions on the existing
+   `test_error_stats_generation` and `read_simple_stats` behavior before
+   running.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Two consecutive failures of
+  `test_secondary_records_excluded_from_metrics_and_passed_through`,
+  then `171 passed` after the fixes.
+
+:::
+
+## change
+
+<!-- File, git, pixi, and env mutations made. -->
+
+### files, commits, and version for the 0.9.0 change
+
+```
+level: high
+```
+
+#### reason
+
+Every row below was observed in `git status`/`git log` output this
+session, and the suite passed after the changes.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb    | Path                                                     |
+| ------- | -------------------------------------------------------- |
+| updated | `src/sam_tagger/lib.py`                                   |
+| updated | `src/sam_tagger/stats/length_dist.py`                     |
+| updated | `src/sam_tagger/cli.py`                                   |
+| updated | `tests/test_qc_summary.py`                                |
+| updated | `tests/test_complex.py`                                   |
+| updated | `docs/usage.qmd`                                           |
+| updated | `pyproject.toml`, `pixi.toml`, `src/sam_tagger/__init__.py` |
+| created | `docs/plans/20261118-180320_secondary-exclusion.plan.qmd`  |
+| created | `docs/plans/20261118-181037_secondary-exclusion.report.qmd` |
+
+1. Git: `f835487` (feat!: exclude secondary records from all metrics),
+   `d9f3172` (docs: usage.qmd reword), `cfa0cbc` (chore(release): 0.9.0).
+2. Packages/environments: none added; `pixi install` refreshed the
+   default env only.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git log --oneline -3` → `cfa0cbc`, `d9f3172`, `f835487`.
+- Plan: `docs/plans/20261118-180320_secondary-exclusion.plan.qmd`.
+
+:::
+
+## other
+
+None
