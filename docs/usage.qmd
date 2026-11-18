@@ -223,12 +223,12 @@ The `error` file also carries `total` (per-position depth) and eight
 `smoothed_deletion_rate` is null without `--fasta`). `total` follows
 `samtools depth -J -a -a` semantics — `:`/`*`/`-` bases cover, insertions
 do not, deletions count (so every rate stays ≤ 1) — over sam-tagger's own
-read universe (all mapped cs-carrying reads; not region-gated). It equals
-the samtools output exactly when the BAM has no secondary (0x100),
-QC-fail (0x200), or duplicate (0x400) records and every mapped read
-carries `cs` (samtools excludes those flags by default; samtools ref-skips
-`N` are never counted). A cross-validation test runs real `samtools depth`
-against this column.
+read universe (all mapped cs-carrying reads; secondary `0x100` records are
+excluded from every metric; not region-gated). It equals the samtools
+output exactly when the BAM has no QC-fail (0x200) or duplicate (0x400)
+records and every mapped read carries `cs` (samtools excludes those flags —
+and secondary — by default; samtools ref-skips `N` are never counted).
+A cross-validation test runs real `samtools depth` against this column.
 
 The `ref_summary` file carries one row per reference with two Float64
 metrics. `max_min_rate` = min depth / max depth over **all** reference
@@ -295,17 +295,18 @@ the whole-amplicon rate (null when `effective_len` is null or ≤ 0).
 - **Without `--config`** — only `total_reads`, `forward_reads`, `reverse_reads`,
   `forward_rate`, `fl`, `fl_rate` are computed (strand and FL need no config).
 
-Strand counts read the FLAG `0x10` bit of every **mapped** record, including
-secondary and supplementary alignments, so
+Strand counts read the FLAG `0x10` bit of every **mapped** record except
+secondary (`0x100`) alignments — supplementary (`0x800`) included — so
 `forward_reads + reverse_reads == total_reads` in every row.
 
 Pass `--length-dist-out PATH` for an optional second output: per-reference
 length distributions in long format `(seq_name, metric, value, count)`, with
 `metric ∈ {read_len, dm}`. `read_len` is the full observed read length
 (soft clips included); `dm` is the `M+D` CIGAR sum (the `--add-dm` tag
-computation). Distributions count **primary alignments only** — secondary
-(`0x100`) and supplementary (`0x800`) records are excluded, because secondary
-records double-count reads and supplementary records are hard-clip fragments.
+computation). Distributions count **primary alignments only**: secondary
+(`0x100`) records are excluded from every metric (see above), and
+supplementary (`0x800`) records are additionally excluded here because they
+are hard-clip fragments, not whole reads.
 
 ```bash
 # full summary (amp-primer configs also need --fasta for the AP needles)
