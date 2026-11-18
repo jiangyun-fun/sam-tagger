@@ -17,6 +17,9 @@ author: "Yun Jiang"
 5. M: "Never decided" in the record-universe audits means no recorded
    decision — the attribution rests on absent filters and commit
    messages; unrecorded deliberation cannot be ruled out.
+6. M: the 2026-11-18 secondary-exclusion agreement is design-level; the
+   numeric impact on existing datasets was not measured (no BAM scanned
+   this turn, and per user instruction pipeline data was not consulted).
 
 ## limitation
 

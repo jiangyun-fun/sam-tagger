@@ -936,3 +936,35 @@ introduce the all-mapped record universe, and for which metrics?
 
 Files: appended this entry; appended `docs/misc/caveat_and_limitation.qmd`.
 Packages / Environments / Git: docs commit on main; no code changes.
+
+## agree to exclude secondary records from all metrics
+
+```
+level: medium
+date: 2026-11-18
+```
+
+### description
+
+The user proposed excluding secondary (0x100) records from every metric and
+asked for agreement or refutation with evidence, considering the tool itself
+only.
+
+### result
+
+1. Answered: agree — the tool's own length-dist rationale ("secondary
+   records double-count reads", length_dist.py:3-5, usage.qmd:306-308)
+   applies to every metric, not just distributions.
+2. Answered: the parity test's own docstring (test_integration.py:518-525)
+   records that samtools depth excludes 0x100 by default while sam-tagger
+   keeps it — excluding secondary removes a documented divergence source.
+3. Answered: refinements — keep supplementary (0x800) in base-level metrics
+   (dropping it would break the tested samtools parity); supplementary in
+   read-level counts stays a separate open decision; annotate must still
+   write skipped records to its output BAM; QC-fail/dup remain included.
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
+appended `docs/misc/caveat_and_limitation.qmd`.
+Packages / Environments / Git: docs commit on main; no code changes.
