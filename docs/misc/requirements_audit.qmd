@@ -905,3 +905,34 @@ supplementary records.
 Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
 appended `docs/misc/caveat_and_limitation.qmd`.
 Packages / Environments / Git: docs commit on main; no code changes.
+
+## trace origin of the secondary-supplementary inclusion decision
+
+```
+level: low
+date: 2026-11-18
+```
+
+### description
+
+Follow-up to the 2026-11-16 record-universe audit: did the pinned semantics
+"include secondary/supplementary so forward + reverse equals total_reads"
+introduce the all-mapped record universe, and for which metrics?
+
+### result
+
+1. Answered: the 2026-10-20 pinning scoped only the new qc-summary strand
+   columns; it aligned them to total_reads' existing universe so the sum
+   invariant holds (requirements_audit.qmd:74-94; commit 63f8a48).
+2. Answered: total_reads has counted every mapped record since qc-summary
+   was born (bc2e2d4, 2026-08-05) — the original loop filters only
+   is_unmapped; inclusion there is inheritance from the cs-tagger port,
+   not a recorded decision.
+3. Answered: error-stats/pileup/annotate inclusion was never decided by
+   any requirement or commit; the only deliberate universe choice in the
+   other direction is length-dist's exclusion (91fbc63).
+
+### change
+
+Files: appended this entry; appended `docs/misc/caveat_and_limitation.qmd`.
+Packages / Environments / Git: docs commit on main; no code changes.

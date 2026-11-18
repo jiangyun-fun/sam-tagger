@@ -14,6 +14,9 @@ author: "Yun Jiang"
    not guaranteed by the format.
 4. L: QC-fail (0x200) and duplicate (0x400) records are also included in
    every metric; no filter for them exists in the codebase.
+5. M: "Never decided" in the record-universe audits means no recorded
+   decision — the attribution rests on absent filters and commit
+   messages; unrecorded deliberation cannot be ruled out.
 
 ## limitation
 
@@ -23,3 +26,5 @@ author: "Yun Jiang"
    existing test assertions; no new BAM fixture was run this turn.
 3. L: The downstream ecsngsqc workflow's interpretation of these columns
    was not audited.
+4. L: The provenance trace stops at this repo's scaffold (c0a80c4);
+   cs-tagger, the pre-port ancestor, has no history here.
