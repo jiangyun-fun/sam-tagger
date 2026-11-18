@@ -1,8 +1,8 @@
 """Length-distribution collector for the ``qc-summary`` ``--length-dist-out`` side output.
 
-Counts primary alignments only (secondary 0x100 / supplementary 0x800 excluded
-by the caller): a length distribution is a property of reads, and secondary
-records double-count while supplementary records are hard-clip fragments.
+Counts primary alignments only (the caller drops secondary 0x100 records for
+every metric and supplementary 0x800 records here): a length distribution is
+a property of reads, and supplementary records are hard-clip fragments.
 
 Two metrics per reference: ``read_len`` (``query_length`` — full observed
 read, soft clips included) and ``dm`` (M+D CIGAR sum, the ``--add-dm`` tag

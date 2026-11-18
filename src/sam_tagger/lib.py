@@ -267,6 +267,10 @@ def _annotate_loop(
             bam_writer.write(record)
             continue
 
+        if record.is_secondary:
+            bam_writer.write(record)
+            continue
+
         watch.observe(record)
 
         qname = record.query_name or ""
@@ -424,7 +428,7 @@ def run_error_stats(args: ErrorStatsArgs) -> None:
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
             record_count += 1
-            if record.is_unmapped:
+            if record.is_unmapped or record.is_secondary:
                 continue
             watch.observe(record)
             if not record.has_tag("cs"):
@@ -482,7 +486,7 @@ def run_pileup(args: PileupArgs) -> None:
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
             record_count += 1
-            if record.is_unmapped:
+            if record.is_unmapped or record.is_secondary:
                 continue
             watch.observe(record)
             cigar = record.cigartuples
@@ -547,7 +551,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
         watch = _CsWatch(needs_cs=(cfg.tc is not None or cfg.error is not None))
         record_count = 0
         for record in bam_reader.fetch(until_eof=True):
-            if record.is_unmapped:
+            if record.is_unmapped or record.is_secondary:
                 continue
             record_count += 1
             watch.observe(record)
@@ -555,7 +559,7 @@ def run_qc_summary(args: QcSummaryArgs) -> None:
             cigar = record.cigartuples or []
             qc.tally_total(ref_name)
             qc.tally_strand(ref_name, record.is_reverse)
-            if length_dist is not None and not record.is_secondary and not record.is_supplementary:
+            if length_dist is not None and not record.is_supplementary:
                 length_dist.tally(
                     ref_name,
                     record.query_length,

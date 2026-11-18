@@ -350,6 +350,8 @@ def qc_summary(args: Annotated[QcSummaryArgs, Parameter(name="")]) -> None:
     efficiency = on_target_rate ** (1/effective_len). AP needles are the
     reference FASTA windows, so amp-primer configs also need --fasta.
     Without --config, only the read-count, strand, and FL columns are computed.
+    Secondary (0x100) records are excluded from every count; supplementary
+    (0x800) records are included.
     """
     _configure_logging(args.verbose)
     from sam_tagger.lib import run_qc_summary

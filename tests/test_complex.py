@@ -2,6 +2,7 @@
 
 Beyond the per-feature tests in test_integration, these exercise:
   - a multi-ref, multi-feature run end-to-end (tags + stats + extraction together)
+  - secondary (0x100) records: excluded from metrics, passed through untagged
   - --intervals BED pileup on multiple refs with overlapping (merged) intervals
   - an empty / header-only BAM (no records)
   - mapped reads that lack a cs tag (cs-based tags must be skipped, not crash)
@@ -112,7 +113,63 @@ def test_complex_multi_feature_run(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. --intervals on multiple refs with overlapping (merged) intervals
+# 2. secondary (0x100) records: excluded from every metric, passed through
+# ---------------------------------------------------------------------------
+
+
+def test_secondary_records_excluded_from_metrics_and_passed_through(tmp_path: Path) -> None:
+    """One primary + one secondary alignment of the same read, both with cs.
+
+    error-stats / pileup / annotate stats must count the primary only;
+    annotate must still write the secondary record to the output BAM, untagged.
+    """
+    cfg = {"seq1": {"error_primer_start_len": 5, "error_primer_end_len": 5}}
+    seq = "A" * 28
+    sam = (
+        f"r1\t0\tseq1\t1\t60\t28M\t*\t0\t0\t{seq}\t{Q * 28}\tcs:Z::28\n"
+        f"r1\t256\tseq1\t1\t60\t28M\t*\t0\t0\t{seq}\t{Q * 28}\tcs:Z::28\n"
+    )
+    setup = setup_env(tmp_path, cfg, HDR_28_26, sam, fasta={"seq1": seq})
+    assert setup.config_path is not None
+    assert setup.fasta_path is not None
+
+    # error-stats: per_read/per_base totals from the primary alignment only
+    run_error_stats(
+        ErrorStatsArgs(
+            input_bam=setup.input_bam,
+            config=setup.config_path,
+            fasta=setup.fasta_path,
+            prefix=tmp_path / "stats",
+        )
+    )
+    per_read = pl.read_parquet(tmp_path / "stats.per_read.parquet")
+    assert per_read.filter(pl.col("seq_name") == "seq1")["total"].to_list() == [1]
+    per_base = pl.read_parquet(tmp_path / "stats.per_base.parquet")
+    assert per_base.filter(pl.col("seq_name") == "seq1")["total"].to_list() == [28]
+
+    # pileup: depth 1 per covered position (secondary adds nothing)
+    pileup_out = tmp_path / "pileup.parquet"
+    run_pileup(PileupArgs(input_bam=setup.input_bam, output=pileup_out, min_base_qual=20))
+    pileup = pl.read_parquet(pileup_out)
+    assert pileup.height == 28  # one ref-match row per position
+    assert set(pileup["dp"].to_list()) == {1}
+
+    # annotate: both records written; only the primary is tagged/counted
+    flp = tmp_path / "fl.parquet"
+    run_annotate(_args(setup, add_fl="FL", add_ee="EE", fl_stats=flp))
+    with pysam.AlignmentFile(str(setup.output_bam), "rb") as bam:
+        records = list(bam)
+    assert len(records) == 2
+    secondary = [r for r in records if r.flag & 0x100]
+    primary = [r for r in records if not r.flag & 0x100]
+    assert len(secondary) == 1 and len(primary) == 1
+    assert primary[0].has_tag("FL") and primary[0].has_tag("EE")
+    assert not secondary[0].has_tag("FL") and not secondary[0].has_tag("EE")
+    assert read_simple_stats(flp) == {"seq1": 1, "seq2": 0}  # seq2 zero-filled (header ref)
+
+
+# ---------------------------------------------------------------------------
+# 3. --intervals on multiple refs with overlapping (merged) intervals
 # ---------------------------------------------------------------------------
 
 
@@ -137,7 +194,7 @@ def test_pileup_intervals_multiref_merge(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. empty / header-only BAM
+# 4. empty / header-only BAM
 # ---------------------------------------------------------------------------
 
 
@@ -183,7 +240,7 @@ def test_empty_bam_annotate_pileup_errorstats(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. mapped reads WITHOUT a cs tag
+# 5. mapped reads WITHOUT a cs tag
 # ---------------------------------------------------------------------------
 
 
@@ -204,7 +261,7 @@ def test_reads_without_cs_tag(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. NB tag against a real FASTA, incl. reference-end boundary
+# 6. NB tag against a real FASTA, incl. reference-end boundary
 # ---------------------------------------------------------------------------
 
 

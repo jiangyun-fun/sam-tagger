@@ -263,7 +263,7 @@ def test_qc_summary_empty_bam(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. strand columns — FLAG 0x10 split incl. secondary/supplementary records
+# 6. strand columns — FLAG 0x10 split; secondary excluded, supplementary included
 # ---------------------------------------------------------------------------
 
 
@@ -282,10 +282,10 @@ def test_qc_summary_strand_columns(tmp_path: Path) -> None:
 
     qc = _read_qc(out)
     row = qc["seq1"]
-    assert row["total_reads"] == 4  # unmapped r5 excluded
-    assert row["forward_reads"] == 2  # r1 + secondary r3
-    assert row["reverse_reads"] == 2  # r2 + supplementary r4
-    assert row["forward_rate"] == pytest.approx(0.5)
+    assert row["total_reads"] == 3  # unmapped r5 and secondary r3 excluded
+    assert row["forward_reads"] == 1  # r1 only; secondary r3 excluded
+    assert row["reverse_reads"] == 2  # r2 + supplementary r4 (still included)
+    assert row["forward_rate"] == pytest.approx(1 / 3)
     # identity holds row-wise
     assert row["forward_reads"] + row["reverse_reads"] == row["total_reads"]
     # zero-read ref: zeros, no division error
@@ -344,7 +344,7 @@ def test_qc_summary_length_dist(tmp_path: Path) -> None:
     }
     # digest unchanged by the side output
     qc = pl.read_parquet(qc_out)
-    assert qc["total_reads"].to_list() == [5]  # all mapped, incl. secondary/supplementary
+    assert qc["total_reads"].to_list() == [4]  # primary a,b,c + supplementary e; secondary d excluded
 
 
 def test_qc_summary_length_dist_absent_flag_writes_nothing(tmp_path: Path) -> None:
