@@ -24,6 +24,15 @@ author: "Yun Jiang"
    0.8.x and 0.9.x outputs in cross-version comparisons.
 8. L: annotate output BAMs from 0.9.0 carry no tags on secondary records
    (0.8.x tagged them) — downstream tag filters see a behavioral change.
+9. H: an env that lists `sam-tagger` without a version pin moves to 0.9.0
+   from sibio on its next solve — read counts and depth then drop on BAMs
+   with secondary alignments; pin `sam-tagger=0.8.*` where 0.8.x output is
+   required.
+10. M: rolling items 1-2 still name 0.8.x as the ecsngsqc and wps_1012
+   migration target — left unchanged on 2026-11-23; decide whether they
+   move to 0.9.x.
+11. M: the v0.9.0 recipe and audit commits in conda-recipes are local only
+   — the remote conda-recipes repo does not carry the 0.9.0 recipe.
 
 ## limitation
 
@@ -35,3 +44,7 @@ author: "Yun Jiang"
    was not audited.
 4. L: The provenance trace stops at this repo's scaffold (c0a80c4);
    cs-tagger, the pre-port ancestor, has no history here.
+5. M: The 2026-11-23 release covers the GitHub release and the sibio
+   channel only — not bioconda and not PyPI.
+6. M: The fresh-env check covered `--version` and import on this machine;
+   other clients and other pixi versions were not tested.

@@ -1,0 +1,73 @@
+---
+title: "Release v0.9.0 to the sibio channel"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+## objective
+
+Publish sam-tagger 0.9.0 (secondary-record exclusion) to the sibio conda
+channel, following the 0.8.0 release chain: tag push, GitHub release,
+conda-recipes bump and build, sibio deploy, client-side verification.
+
+## scope
+
+- sam-tagger: annotated tag `v0.9.0` on the chore(release) commit
+  `cfa0cbc`; push `main` and the tag; curated release notes.
+- conda-recipes: `recipes/sam-tagger/meta.yaml` version and sha256; build
+  with `pixi run build-linux sam-tagger`; audit mirror entry.
+- sibio channel: copy `sam-tagger-0.9.0-py_0.conda` to
+  `/bioproj/data/minio/sibio_local/noarch/`, `pixi run index`, `pixi run
+  upload`.
+- Verification: `pixi search`, repodata depends, fresh-env install.
+
+## what happened
+
+1. Pre-flight passed: origin not diverged, gates green in the dev env
+   (171 tests, ruff, pyright), versions consistent, no `v0.9.0` tag or
+   release.
+2. Created annotated tag `v0.9.0` at `cfa0cbc`, then pushed `main` and
+   the tag atomically.
+3. Watched the release run and the CI run on `main`; both completed with
+   `success`.
+4. Installed curated release notes with `gh release edit`.
+5. Downloaded the sdist and computed its sha256 three ways; all agree.
+6. Bumped `meta.yaml`, built the noarch package, and inspected its run
+   deps and its packaged code.
+7. Copied the package to the channel directory and reindexed. Compared
+   the bucket with the local directory, then ran `pixi run upload`.
+8. Verified from a client: `pixi search`, the remote repodata entry, the
+   remote object MD5, and a fresh-env install.
+9. Wrote this plan's report, the audit entries, and the rolling state.
+
+## risks
+
+- The tag push, the GitHub release, and the sibio deploy are visible to
+  others and hard to reverse. All three are done.
+- `pixi run upload` mirrors with `--remove`. The comparison before the
+  upload showed no remote-only object, so nothing was deleted.
+- Older sam-tagger versions stay on the channel; nothing is superseded.
+
+## verification
+
+- Release workflow run 45117385846 `success`, with
+  `sam_tagger-0.9.0.tar.gz` attached.
+- `build-linux` reported `built=1 failed=0`.
+- `pixi search sam-tagger -c s3://conda/sibio` lists `0.9.0 py_0` with
+  the six intended run deps.
+- A fresh env pinned to `sam-tagger==0.9.0` prints `0.9.0`.
+
+## plan file
+
+`docs/plans/20261123-132050_release-v0.9.0.plan.qmd`

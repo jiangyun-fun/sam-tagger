@@ -28,11 +28,10 @@ author: "Yun Jiang"
    kept AS; scripts in /tmp/samtagger_debug/).
 3. M: add a `to_n` column (or N split) to error.parquet so pairloom-
    unresolved N calls stay separable from true substitutions.
-4. M: release 0.9.0 when ready (tag push + conda-recipes bump; the staged
-   0.8.0 bioconda submission — meta.yaml ready — can be superseded by
-   0.9.0 directly); note the feat! semantics change in the notes.
-6. L: on future releases, expect the release workflow to auto-create the
+4. M: submit sam-tagger 0.9.0 to bioconda — `recipes/sam-tagger/meta.yaml`
+   is sha256-ready; use the conda-recipes `upload-to-bioconda` skill.
+5. L: on future releases, expect the release workflow to auto-create the
    GitHub release on tag push — use `gh release edit` for curated notes
    instead of `create`.
-7. L: run `ruff format` on changed files only — the repo is not format-clean
+6. L: run `ruff format` on changed files only — the repo is not format-clean
    under the current ruff, and blanket runs rewrite unrelated files.

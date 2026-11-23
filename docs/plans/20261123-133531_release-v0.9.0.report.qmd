@@ -1,0 +1,335 @@
+---
+title: "Release v0.9.0 to the sibio channel — secondary-record exclusion"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+## feature
+
+<!-- New capability this task added. -->
+
+### sam-tagger 0.9.0 resolves from the sibio channel
+
+```
+level: high
+```
+
+#### reason
+
+A fresh environment solved `sam-tagger==0.9.0` from the deployed channel and printed `0.9.0`. The remote object matches the built package byte for byte.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. The GitHub release `v0.9.0` carries the sdist and the wheel.
+2. `sam-tagger-0.9.0-py_0.conda` is on sibio with six run dependencies, equal to the 0.8.0 list.
+3. Versions 0.2.0, 0.6.0, 0.7.0, and 0.8.0 stay on the channel.
+
+#### before
+
+A consumer of the sibio channel could install sam-tagger 0.8.0 at most. 0.9.0 existed only as local commits.
+
+#### after
+
+A consumer can install `sam-tagger==0.9.0` from sibio and gets the secondary-record exclusion. 0.9.0 is the newest version on the channel.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `pixi search sam-tagger -c s3://conda/sibio` → `sam-tagger-0.9.0-py_0`, `SHA256 91d5f6b3…0fd415`, dependencies `cyclopts >=3.0, loguru >=0.7, polars >=1.0, pydantic >=2.0, pysam >=0.22, python >=3.13`.
+- Fresh env (`pixi exec`, channels conda-forge, bioconda, sibio): `sam-tagger --version` → `0.9.0`. The env's `conda-meta` holds `sam-tagger-0.9.0-py_0.json`.
+- `gh release view v0.9.0` → assets `sam_tagger-0.9.0.tar.gz` (171898 bytes) and `sam_tagger-0.9.0-py3-none-any.whl` (41962 bytes).
+
+:::
+
+## fix
+
+None
+
+## assumption
+
+<!-- Unverified premise the work depends on. -->
+
+### consumers pin sam-tagger by version
+
+```
+level: unknown
+```
+
+#### reason
+
+No consumer manifest was read this turn. The claim that existing environments keep 0.8.x therefore has no direct evidence.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The deploy adds one package and removes none, so a locked environment keeps its version.
+2. An environment that lists `sam-tagger` without a version pin moves to 0.9.0 on its next solve. Its read counts then change on BAMs with secondary alignments.
+3. The test to confirm or refute: grep the consumer manifests for `sam-tagger` and read each pin.
+
+#### evidence
+
+```
+level: unknown
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+None
+
+:::
+
+## conclusion
+
+<!-- Interpreted claim: what we now know. -->
+
+### the release chain completed and each stage was verified against the deployed artifact
+
+```
+level: high
+```
+
+#### reason
+
+Every stage left a verifiable result this session: two successful workflow runs, one sdist hash that agrees three ways, one build summary, and a client resolution.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. Tag `v0.9.0` is an annotated tag on `cfa0cbc`, the same placement as v0.7.0 and v0.8.0.
+2. The release workflow and CI on `main` both completed with `success`.
+3. The sdist sha256 agrees on GitHub's asset digest, the downloaded asset, and the source URL.
+4. The sdist and the conda package both carry version 0.9.0 and the four secondary-record guards.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `gh run view 45117385846` → `success`. `gh run view 45117386000` → `success`.
+- The asset `sha256sum`, `curl -fL <source url> | sha256sum`, and the asset `digest` field all give `73c4df47f7a837cad72543b44de19c3d94ddd159480648fc8ce1fd47d0bb535e`.
+- `grep -n is_secondary` on the packaged `site-packages/sam_tagger/lib.py` → lines 270, 431, 489, 554.
+- `build-linux` final line: `Done. fmt=auto built=1 skipped=0 failed=0`.
+
+:::
+
+## observation
+
+<!-- What was noticed in data or behavior, without interpretation. -->
+
+### the mirror would have deleted nothing before the upload
+
+```
+level: high
+```
+
+#### reason
+
+The comparison used exact set logic on a fresh remote listing and a local `find`. Both counts reconcile.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. Before the upload, the bucket held 141 objects and the local directory held 142 files.
+2. All 141 remote objects existed locally.
+3. The one local-only file was `noarch/sam-tagger-0.9.0-py_0.conda`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `mc ls --recursive --json local-minio/conda/sibio/` → 141 keys over `linux-64`, `noarch`, `osx-64`, `win-64`.
+- Python set difference → `remote-only (mirror --remove would DELETE): []` and `local-only: ['noarch/sam-tagger-0.9.0-py_0.conda']`.
+
+:::
+
+### the channel directory contains a nested noarch directory
+
+```
+level: high
+```
+
+#### reason
+
+The path appears in both the bucket listing and the local file list this session, and its file dates were read with `stat`.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Both listings carry `noarch/noarch/` with `index.html`, `repodata.json`, and `repodata_from_packages.json`.
+2. The nested files are dated 2026-11-14. The index run today modified `noarch/repodata.json` only.
+3. The origin of the nested directory was not examined.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `stat` → `noarch/noarch/repodata.json` 2026-11-14 12:06, `noarch/noarch/index.html` 2026-11-14 12:08, `noarch/repodata.json` 2026-11-23 13:29.
+
+:::
+
+## process
+
+<!-- Audit of a significant action or decision between plan and report. -->
+
+### ran the fresh-env check without the bioconda channel
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first `pixi exec` listed only conda-forge and sibio, so the solve found no `pysam` candidate and failed.
+2. The failure was in the verification command, not in the package.
+3. The better action: read the channel workspace's channel list first, then pass conda-forge, bioconda, and sibio, as the rerun did.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- First run: `sam-tagger 0.9.0 would require pysam >=0.22, for which no candidates were found` (exit 1).
+- Rerun with bioconda: `0.9.0` (exit 0).
+- `/bioproj/data/minio/pixi.toml` lists `["conda-forge", "bioconda", "s3://conda/sibio"]`.
+
+:::
+
+### compared the two listings with two faulty methods before using set logic
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first parse stripped a key prefix that `mc ls --json` does not emit, so the remote set came out empty.
+2. The second attempt used `comm`, which rejected both files as unsorted under this machine's collation.
+3. The better action: compute the set difference in one interpreter from the start, as the third attempt did.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- First attempt: `remote objects: 141 | outside prefix: [141 keys]`, then counts `0` against `142`.
+- Second and third attempts: `comm: file 1 is not in sorted order` (exit 1).
+- Final attempt: `remote: 141 | local: 142 | common: 141`.
+
+:::
+
+## change
+
+<!-- File, git, pixi, and env mutations made. -->
+
+### files, commits, release, and channel mutations for v0.9.0
+
+```
+level: high
+```
+
+#### reason
+
+Each row is a commit hash, a ref, a workflow run, or a channel object observed this session.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Target | Mutation |
+|---|---|
+| sam-tagger | annotated tag `v0.9.0` at `cfa0cbc` |
+| sam-tagger | pushed `main` (`8e8eb4f..18f6d0f`) and tag `v0.9.0`, atomically |
+| GitHub release | `v0.9.0` with sdist, wheel, and curated notes |
+| conda-recipes | `ab00dce` — `chore: bump sam-tagger to 0.9.0` (local) |
+| conda-recipes | `d2a62df` — audit mirror entry (local) |
+| sibio channel | added `noarch/sam-tagger-0.9.0-py_0.conda`, reindexed, mirrored |
+| sam-tagger docs | this report, the rewritten plan, `docs/misc/*` |
+
+1. The index step regenerated the channel index files under `/bioproj/data/minio/sibio_local/`. They are left uncommitted there.
+2. No remote object was removed from the channel.
+3. No package or environment was added to a project. The fresh-env check used a cached ephemeral `pixi exec` environment.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `git push --atomic origin main v0.9.0` → `8e8eb4f..18f6d0f  main -> main` and `* [new tag]         v0.9.0 -> v0.9.0`.
+- `git -C conda-recipes log --oneline -2` → `d2a62df`, `ab00dce`.
+- Upload log line 48: `sibio_local/noarch/sam-tagger-0.9.0-py_0.conda -> local-minio/conda/sibio/noarch/sam-tagger-0.9.0-py_0.conda`.
+
+:::
+
+## other
+
+None

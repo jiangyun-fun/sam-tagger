@@ -1008,3 +1008,36 @@ Files: updated `src/sam_tagger/{lib,cli}.py`,
 Git: commits f835487 (feat!), d9f3172 (docs), cfa0cbc (chore(release):
 0.9.0), plus this docs commit. Not pushed; no tag; no conda build.
 Packages/Environments: none added; default env refreshed via pixi install.
+
+## Release sam-tagger 0.9.0 to the sibio channel
+
+```
+level: high
+date: 2026-11-23
+cross-repo: sam-tagger, conda-recipes
+```
+
+### description
+
+Publish sam-tagger 0.9.0 (secondary-record exclusion) to the sibio
+channel, following the 0.8.0 release chain: tag push, GitHub release,
+conda-recipes bump and build, sibio deploy, client-side verification.
+
+### result
+
+1. Implemented: annotated tag `v0.9.0` at `cfa0cbc`; pushed `main` (8e8eb4f..18f6d0f) and the tag atomically.
+2. Verified: release run 45117385846 and CI run 45117386000 both `success`; sdist and wheel attached.
+3. Implemented: curated release notes on `v0.9.0` via `gh release edit` (breaking change, what is still counted, migration).
+4. Verified: sdist sha256 `73c4df47…0bb535e` agrees on the asset digest, the downloaded asset, and the source URL.
+5. Verified: the sdist and the conda package both carry version 0.9.0 and the four secondary-record guards.
+6. Implemented (conda-recipes): recipe bumped to 0.9.0; built `noarch/sam-tagger-0.9.0-py_0.conda` with run deps equal to 0.8.0.
+7. Implemented (sibio): package indexed and mirrored; no remote object removed (all 141 remote objects exist locally).
+8. Verified: `pixi search sam-tagger -c s3://conda/sibio` lists 0.9.0 py_0 with six intended deps; a fresh env install prints 0.9.0.
+
+### change
+
+Files (sam-tagger): created `docs/plans/20261123-132050_release-v0.9.0.plan.qmd`, `docs/plans/20261123-133531_release-v0.9.0.report.qmd`; appended `docs/misc/*`.
+Files (conda-recipes): updated `recipes/sam-tagger/meta.yaml`, `docs/misc/requirements_audit.qmd`.
+Channel: added `noarch/sam-tagger-0.9.0-py_0.conda` to sibio; index files under `/bioproj/data/minio/sibio_local/` regenerated (left uncommitted).
+Git: sam-tagger pushed `main` + tag `v0.9.0`, plus this docs commit (local); conda-recipes `ab00dce` + audit commit (local, unpushed).
+Packages/Environments: none added; the fresh-env check used a cached ephemeral `pixi exec` env.
