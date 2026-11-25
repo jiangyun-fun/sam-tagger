@@ -1041,3 +1041,36 @@ Files (conda-recipes): updated `recipes/sam-tagger/meta.yaml`, `docs/misc/requir
 Channel: added `noarch/sam-tagger-0.9.0-py_0.conda` to sibio; index files under `/bioproj/data/minio/sibio_local/` regenerated (left uncommitted).
 Git: sam-tagger pushed `main` + tag `v0.9.0`, plus this docs commit (local); conda-recipes `ab00dce` + audit commit (local, unpushed).
 Packages/Environments: none added; the fresh-env check used a cached ephemeral `pixi exec` env.
+
+## schedule one-shot 18:01 cron for the pileup slowness investigation
+
+```
+level: medium
+date: 2026-11-25
+```
+
+### description
+
+Schedule a Claude cron for today 18:00 (2026-11-25) that re-runs the two
+`sam-tagger pileup` jobs of ecsngsqc step S34_1 (each took about 3 h), finds
+out why they are slow, decides whether Python is the bottleneck, and proposes
+speedup methods.
+
+### result
+
+1. Implemented: one-shot durable cron `409a7590` for 2026-11-25 18:01
+   (off the :00 mark by design) with a self-contained brief: verified facts,
+   hypotheses, constraints, plan, deliverables.
+2. Answered: the two S34_1 runs took 2 h 58 m 55 s (`all`) and 2 h 58 m 54 s
+   (`ap_both`) on 2026-11-18, concurrently, one thread each (rule logs).
+3. Answered: each run counts about 2.0 × 10^10 base observations (about
+   0.53 µs each); the pileup code is identical in 0.8.0 and 0.9.0 except the
+   secondary-record skip (`git diff v0.8.0..HEAD`).
+
+### change
+
+Files: appended this entry; synced `docs/misc/next_and_recommendation.qmd`;
+appended `docs/misc/caveat_and_limitation.qmd`.
+Packages / Environments / Git: docs commit on main; no code changes. Cron
+persisted to `.claude/scheduled_tasks.json` (excluded via `.git/info/exclude`,
+left uncommitted).

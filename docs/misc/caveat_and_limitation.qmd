@@ -29,10 +29,21 @@ author: "Yun Jiang"
    with secondary alignments; pin `sam-tagger=0.8.*` where 0.8.x output is
    required.
 10. M: rolling items 1-2 still name 0.8.x as the ecsngsqc and wps_1012
-   migration target — left unchanged on 2026-11-23; decide whether they
-   move to 0.9.x.
+    migration target — left unchanged on 2026-11-23; decide whether they
+    move to 0.9.x.
 11. M: the v0.9.0 recipe and audit commits in conda-recipes are local only
-   — the remote conda-recipes repo does not carry the 0.9.0 recipe.
+    — the remote conda-recipes repo does not carry the 0.9.0 recipe.
+12. H: the per-base Python loop as the cause of the pileup slowness is a
+    hypothesis from arithmetic (about 0.53 µs per counted base) and code
+    reading; cron `409a7590` must measure it.
+13. M: cron `409a7590` profiles the head (0.9.0), which skips secondary
+    records; the 2026-11-18 runs used 0.8.0 per the env pin, so timings
+    and outputs can differ from the originals.
+14. M: the cron fires at 18:01 only while a Claude Code session in this
+    repo is open and idle; otherwise the durable one-shot surfaces for
+    catch-up at the next launch.
+15. L: the machine carried a load average of 8.3 on 12 cores at 16:27;
+    other jobs running at 18:01 can inflate the measured times.
 
 ## limitation
 
@@ -48,3 +59,9 @@ author: "Yun Jiang"
    channel only — not bioconda and not PyPI.
 6. M: The fresh-env check covered `--version` and import on this machine;
    other clients and other pixi versions were not tested.
+7. M: This turn read rule logs, BAM indexes, output Parquet metadata and
+   code; it did not run or profile `sam-tagger pileup`.
+8. L: This turn did not count secondary records in the two BAMs and did
+   not inspect the solved env of the 2026-11-18 run.
+9. L: This turn did not test whether py-spy installs and traces on this
+   machine.
