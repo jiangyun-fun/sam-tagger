@@ -44,6 +44,19 @@ author: "Yun Jiang"
     catch-up at the next launch.
 15. L: the machine carried a load average of 8.3 on 12 cores at 16:27;
     other jobs running at 18:01 can inflate the measured times.
+16. H: the full-run numbers of the pileup investigation (timing table,
+    profile of run B, output comparison, full-size prototype check) are
+    pending; the report draft in the scratch directory holds placeholders.
+17. H: every measurement of the investigation ran under a load average of
+    13 to 26 on a 6-core CPU; CPU per record is 1.3 to 1.7 times the
+    original run's, so only same-time ratios are reliable (±10 to 20 %).
+18. M: the prototype is exact on three subsets (181,653, 6.4 M and 8.6 M
+    rows), not yet on the full 18.0 M rows; it needs a coordinate-sorted
+    BAM, takes no BED intervals, and reads the span length from the cs tag.
+19. M: the soft-clip finding rests on code reading and one crafted record;
+    its effect on the S34_1 output was not quantified.
+20. L: the prototype ran with pysam 0.24.1 (scratch env); the original
+    ran with pysam 0.24.0 (repo env).
 
 ## limitation
 
@@ -65,3 +78,9 @@ author: "Yun Jiang"
    not inspect the solved env of the 2026-11-18 run.
 9. L: This turn did not test whether py-spy installs and traces on this
    machine.
+10. M: This turn of the investigation changed no sam-tagger source; the
+    speedups are a prototype in a scratch directory plus a ranked list.
+11. M: The gain of process parallelism and of a compiled loop is an
+    estimate from the floors, not a benchmark.
+12. L: The uniform 1 % subset over-weights the output phase (8.6 M of the
+    18.0 M rows with 1 % of the reads).

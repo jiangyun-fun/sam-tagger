@@ -1,0 +1,102 @@
+---
+title: "Investigate the sam-tagger pileup run time (about 3 h per run)"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>">
+---
+
+## objective
+
+Explain with measurements why `sam-tagger pileup` needs about 3 hours per
+run on the ecsngsqc S34_1 data (analysis run `01a1ed14`). Decide whether
+CPython-level code is the bottleneck. Rank possible speedups. The task is an
+investigation: proposals only, no change to sam-tagger source.
+
+## scope
+
+1. Read-only inputs: the pipeline workspace `WS` (two BAMs, the reference
+   FASTA, the original pileup Parquet files, the rule logs).
+2. All new files go to `SCRATCH`
+   (`/bioproj/t/20261125.agent.sam-tagger-pileup-perf`), with its own git
+   repository and its own pixi workspace.
+3. In this repo: this plan, the matching report, and `docs/misc/*`.
+4. Not in scope: changes to `src/`, `pixi.toml`, `pyproject.toml`, `tests/`.
+
+## planned steps
+
+1. Preconditions: time, load, memory, repo head, tool versions.
+2. Two full pileup runs, concurrent as in the original. Run A (`all`) is the
+   clean baseline under `/usr/bin/time -v`. Run B (`ap_both`) is started by
+   py-spy at 50 Hz. A detached sampler records CPU and RSS every 60 s.
+3. Subsample profiling on 1 % and 0.1 % subsets of the `all` BAM: py-spy
+   (flamegraph and raw stacks), cProfile, and floor measurements
+   (`samtools view -c`, pysam iterate-only, pysam plus the per-record reads,
+   the full pileup).
+4. Micro-benchmarks of speedup prototypes in SCRATCH: numpy bulk counting of
+   match runs, per-record trims, array-based output.
+5. After the full runs: the timing table against the originals, the stage
+   split, the profile shares, and the output comparison against the
+   original Parquet files.
+6. Report, audit entry, rolling docs, Lark note.
+
+## what happened
+
+1. The scheduled job fired at 19:17, 76 minutes late, on a machine with a
+   load average of 15 to 26 on 12 logical CPUs. CPU time and same-time
+   comparisons replaced wall-clock as the measure.
+2. Wrote this plan, then started run A at 19:21 and run B at 19:22. Both run
+   detached with `setsid nohup`. A sampler writes CPU and RSS every 60 s. A
+   background waiter and a durable one-shot cron (now at 00:05) collect the
+   results.
+3. Counted secondary and supplementary records: 0 in both BAMs.
+4. Profiled a 1 % subset of the reads (997,411 records) with py-spy, cProfile
+   and floor measurements in the repo environment. 81.78 % of the samples
+   are inside `tally_from_record`, 10.01 % in the per-record pysam reads,
+   5.74 % in the output phase.
+5. Built a second subset that keeps the read depth (all reads of every 100th
+   reference: 454 references, 1,014,154 records). The uniform subset is not
+   representative for a design with a plan cache.
+6. Wrote the prototype `dense_pileup.py` in the scratch directory: dense
+   arrays per reference, one cached plan per (start, cs tag), numpy match
+   runs, batches per key. It reproduces the original output exactly on three
+   subsets. A concurrent A/B on 1,014,154 records gives a ratio of 5.0 and
+   4.3 for the per-read mode, and 1.45 more for the batch mode.
+7. Found that the quality filter ignores the leading soft clip (test with a
+   crafted record). The task changes no source, so this is a finding only.
+8. Drafted the report in the scratch directory
+   (`report_draft.report.qmd`) with placeholders for the full-run numbers.
+   The full runs end at about 23:40 (A) and 00:00 (B).
+9. Pending after the full runs: the timing table, the profile of run B, the
+   output comparison against the originals, the full-size check of the
+   prototype, the final report, and the rewrite of this section.
+
+## risks
+
+1. The job started at 19:17, not at 18:01. The machine carried a load
+   average of 15 to 18 on 12 logical CPUs (6 cores). Wall-clock is
+   inflated by CPU contention. CPU time (user + sys) is the primary measure.
+2. Head 0.9.0 skips secondary records; the originals ran 0.8.0. Timing and
+   output differences must be attributed with the secondary-record count.
+3. A session restart during the 3 h runs: the runs are detached, and a
+   durable follow-up cron collects the results.
+
+## verification
+
+1. The timing table holds measured wall-clock, user CPU, sys CPU, and max
+   RSS for both full runs.
+2. The profile shares come from the py-spy raw stacks of full run B and of
+   the 1 % subset. cProfile gives the call counts.
+3. Each proposal carries a measured basis: a floor measurement or a
+   micro-benchmark on the 1 % subset.
+4. The new Parquet files are compared with the originals by row count and
+   by anti-join.
