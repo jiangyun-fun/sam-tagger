@@ -35,68 +35,93 @@ investigation: proposals only, no change to sam-tagger source.
 ## planned steps
 
 1. Preconditions: time, load, memory, repo head, tool versions.
-2. Two full pileup runs, concurrent as in the original. Run A (`all`) is the
-   clean baseline under `/usr/bin/time -v`. Run B (`ap_both`) is started by
+2. Secondary and supplementary record counts of both BAMs.
+3. Two full pileup runs, concurrent as in the original. Run A (`all`) is the
+   clean baseline under `/usr/bin/time -v`. Run B (`ap_both`) runs under
    py-spy at 50 Hz. A detached sampler records CPU and RSS every 60 s.
-3. Subsample profiling on 1 % and 0.1 % subsets of the `all` BAM: py-spy
-   (flamegraph and raw stacks), cProfile, and floor measurements
+4. Subsample profiling on a 1 % subset of the reads: py-spy (raw stacks with
+   line numbers, and a flamegraph), cProfile, and floor measurements
    (`samtools view -c`, pysam iterate-only, pysam plus the per-record reads,
    the full pileup).
-4. Micro-benchmarks of speedup prototypes in SCRATCH: numpy bulk counting of
-   match runs, per-record trims, array-based output.
-5. After the full runs: the timing table against the originals, the stage
-   split, the profile shares, and the output comparison against the
-   original Parquet files.
-6. Report, audit entry, rolling docs, Lark note.
+5. Prototype in SCRATCH: dense arrays per reference, one cached plan per
+   (start, cs tag), numpy match runs, batches per key. Equality check against
+   the original output, then a concurrent A/B on a subset that keeps the
+   read depth (all reads of every 100th reference).
+6. After the full runs: the timing table against the originals, the stage
+   split, the profile shares of run B, the output comparison against the
+   original Parquet files, and the full-size prototype check on both BAMs.
+7. Report, audit entry, rolling docs, Lark note.
 
 ## what happened
 
 1. The scheduled job fired at 19:17, 76 minutes late, on a machine with a
-   load average of 15 to 26 on 12 logical CPUs. CPU time and same-time
-   comparisons replaced wall-clock as the measure.
-2. Wrote this plan, then started run A at 19:21 and run B at 19:22. Both run
-   detached with `setsid nohup`. A sampler writes CPU and RSS every 60 s. A
-   background waiter and a durable one-shot cron (now at 00:05) collect the
-   results.
-3. Counted secondary and supplementary records: 0 in both BAMs.
-4. Profiled a 1 % subset of the reads (997,411 records) with py-spy, cProfile
-   and floor measurements in the repo environment. 81.78 % of the samples
-   are inside `tally_from_record`, 10.01 % in the per-record pysam reads,
-   5.74 % in the output phase.
+   load average of 13 to 26 on 12 logical CPUs (6 cores). CPU time and
+   same-time comparisons replaced wall-clock as the measure.
+2. Wrote this plan, created the scratch directory with its own git
+   repository and pixi workspace, then started run A at 19:21 and run B at
+   19:22. Both ran detached with `setsid nohup`. A sampler wrote CPU and RSS
+   every 60 s. A background waiter and a durable one-shot cron collected the
+   results. The cron moved with the delayed schedule (21:45, 23:20, 00:05,
+   01:05) and was deleted after the report.
+3. Counted secondary and supplementary records: 0 in both BAMs. The outputs
+   of head 0.9.0 must therefore equal the 0.8.0 originals.
+4. Profiled a 1 % subset of the reads (997,411 records) with py-spy,
+   cProfile and floor measurements in the repo environment: 81.78 % of the
+   samples inside `tally_from_record`, 10.01 % in the per-record pysam
+   reads, 5.74 % in the output phase. Floors: pysam iteration 0.99 µs of CPU
+   per record, all per-record reads 11.84 µs, full loop 171.1 µs.
 5. Built a second subset that keeps the read depth (all reads of every 100th
    reference: 454 references, 1,014,154 records). The uniform subset is not
    representative for a design with a plan cache.
-6. Wrote the prototype `dense_pileup.py` in the scratch directory: dense
-   arrays per reference, one cached plan per (start, cs tag), numpy match
-   runs, batches per key. It reproduces the original output exactly on three
-   subsets. A concurrent A/B on 1,014,154 records gives a ratio of 5.0 and
-   4.3 for the per-read mode, and 1.45 more for the batch mode.
+6. Wrote the prototype `dense_pileup.py`: dense arrays per reference, one
+   cached plan per (start, cs tag), numpy match runs, batches per key. Four
+   defects of the prototype were found and corrected before the first exact
+   result: a startup-order error, an empty column placeholder in the output
+   stage, the allele string in the numeric part of an indel row, and the
+   reference base missing on insertion and deletion rows. It reproduces the
+   original output exactly on three subsets. A concurrent A/B on 1,014,154
+   records gives a CPU ratio of 5.0 and 4.3 for the per-read mode. Per-key
+   batching adds a factor of 1.45.
 7. Found that the quality filter ignores the leading soft clip (test with a
-   crafted record). The task changes no source, so this is a finding only.
-8. Drafted the report in the scratch directory
-   (`report_draft.report.qmd`) with placeholders for the full-run numbers.
-   The full runs end at about 23:40 (A) and 00:00 (B).
-9. Pending after the full runs: the timing table, the profile of run B, the
-   output comparison against the originals, the full-size check of the
-   prototype, the final report, and the rewrite of this section.
+   crafted `3S27M` record). The task changes no source, so this is a finding
+   only.
+8. Run A ended at 23:01:04: 13,186 s wall, 12,540.5 s CPU, maximum RSS
+   11,946 MB, output phase 29 s. Run B ended at 23:14:29: 13,931 s wall.
+   Both outputs equal the originals row for row. The full-run profile holds
+   88.15 % of 695,906 samples inside `tally_from_record`, 10.72 % in the
+   per-record pysam reads, and 0.17 % in the output phase.
+9. The full-size prototype check ran on both BAMs from 23:16: 30 m 46 s and
+   31 m 04 s, output exactly equal, 1,783.7 s and 1,801.2 s of CPU, 7.7 GB
+   maximum RSS through the Parquet write.
+10. Wrote the report first as a draft in the scratch directory, then as
+    `docs/plans/20261125-235011_pileup-perf-investigation.report.qmd`, and
+    rendered it.
 
 ## risks
 
 1. The job started at 19:17, not at 18:01. The machine carried a load
-   average of 15 to 18 on 12 logical CPUs (6 cores). Wall-clock is
-   inflated by CPU contention. CPU time (user + sys) is the primary measure.
-2. Head 0.9.0 skips secondary records; the originals ran 0.8.0. Timing and
-   output differences must be attributed with the secondary-record count.
-3. A session restart during the 3 h runs: the runs are detached, and a
-   durable follow-up cron collects the results.
+   average of 13 to 26 on 12 logical CPUs (6 cores). Wall-clock is inflated
+   by CPU contention: 1.23 to 1.30 times the original runs. CPU time
+   (user + sys) is the primary measure, and ratios come from runs at the
+   same time.
+2. Head 0.9.0 skips secondary records; the originals ran 0.8.0. Both BAMs
+   hold 0 secondary records, and the outputs are equal, so the versions do
+   not differ on this data.
+3. A session restart during the long runs: the runs were detached, and a
+   durable follow-up cron was in place. No restart happened.
 
 ## verification
 
-1. The timing table holds measured wall-clock, user CPU, sys CPU, and max
-   RSS for both full runs.
-2. The profile shares come from the py-spy raw stacks of full run B and of
-   the 1 % subset. cProfile gives the call counts.
-3. Each proposal carries a measured basis: a floor measurement or a
-   micro-benchmark on the 1 % subset.
-4. The new Parquet files are compared with the originals by row count and
-   by anti-join.
+1. The timing table in the report holds measured wall-clock, user CPU, sys
+   CPU and max RSS for both full runs. The CPU time of run B is a sampler
+   estimate, because GNU time measured py-spy and not the worker.
+2. The profile shares come from the py-spy raw stacks of full run B (695,906
+   samples) and of the 1 % subset (22,337 samples). cProfile gives the call
+   counts.
+3. Each proposal carries a measured basis: the concurrent A/B and the
+   full-size runs for the dense-array design, the py-spy line shares and the
+   floors for the per-record trims, the floors for the compiled-loop
+   estimate.
+4. The new Parquet files of the two full runs and of the two prototype runs
+   are compared with the originals with `assert_frame_equal(check_exact=True)`.
+   All four are equal.

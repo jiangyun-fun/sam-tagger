@@ -57,6 +57,13 @@ author: "Yun Jiang"
     its effect on the S34_1 output was not quantified.
 20. L: the prototype ran with pysam 0.24.1 (scratch env); the original
     ran with pysam 0.24.0 (repo env).
+21. H: the full-data ratio of 5.8 to 7.5 for the prototype mixes loads —
+    the prototype ran at load 7 to 9, the full runs of this session at 13
+    to 26, the original runs at an unknown load; 5.8 is the safe end.
+22. M: the CPU time of run B is a sampler estimate (94.3 % of 13,878 s),
+    because GNU time measured py-spy and not the worker.
+23. M: the 7.7 GB maximum RSS of the prototype covers the run through the
+    Parquet write; the 9.6 GB of `time -v` includes the equality check.
 
 ## limitation
 
@@ -84,3 +91,5 @@ author: "Yun Jiang"
     estimate from the floors, not a benchmark.
 12. L: The uniform 1 % subset over-weights the output phase (8.6 M of the
     18.0 M rows with 1 % of the reads).
+13. L: The figure of 0.5 to 1.7 minutes for a perfect single-threaded
+    reader scales the decode floor of the subset; no such reader was built.

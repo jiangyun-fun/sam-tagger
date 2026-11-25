@@ -1,0 +1,1043 @@
+---
+title: "sam-tagger pileup: where the 3 hours go"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱</text></svg>">
+---
+
+## feature
+<!-- New capability this task added. level = confidence it works as described. -->
+
+None
+
+## fix
+<!-- Defect in the project or its artifacts, corrected. -->
+
+None
+
+## assumption
+<!-- Unverified premise the work depends on. level = confidence it holds. -->
+
+### CPU time stands in for the conditions of the original runs
+
+```
+level: medium
+```
+
+#### reason
+
+The machine carried a load average of 13 to 26 on 12 logical CPUs during every measurement. The original runs of 2026-11-18 ran under an unknown load. CPU time per record is less sensitive to load than wall-clock, but hyper-thread contention and frequency scaling also inflate CPU time. The subset runs of the original code measured 133 to 179 µs of CPU per record against 108 µs of wall-clock per record in the original run.
+
+#### description
+
+```
+type: [text]
+```
+
+1. Every ratio in this report compares runs that executed at the same time or within minutes of each other.
+2. No ratio compares a measurement of this session with the wall-clock of the original runs.
+3. The full-run table reports both CPU time and wall-clock.
+
+#### evidence
+
+```
+level: medium
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `uptime` on 2026-11-25: `19:17:06 ... load average: 17.77, 12.98, 10.79`, `19:46:03 ... 14.08, 16.41, 17.72`, `19:35:13 ... 26.58, 25.76, 19.74`.
+- `lscpu`: `Intel(R) Xeon(R) W-2235 CPU @ 3.80GHz`, `Thread(s) per core: 2`, `Core(s) per socket: 6`, `CPU(s) scaling MHz: 76%`.
+- Original run: 10,735 s for 99,756,729 records is 107.6 µs per record.
+- Floors on the 1 % subset: 171.1 µs of CPU per record for the full loop, 139.4 µs for the trimmed loop, 154.7 µs for `run_pileup`.
+
+:::
+
+### The subset results transfer to the full run
+
+```
+level: high
+```
+
+#### reason
+
+The full-run profile of run B confirms the subset profile. `tally_from_record` holds 88.15 % of the 695,906 full-run samples against 81.78 % on the subset. The difference is the output phase, which shrinks from 5.74 % to 0.17 % at full scale.
+
+#### description
+
+```
+type: [text, table]
+```
+
+1. The py-spy profile and the floors come from a 1 % subset of the records (997,411 of 99,756,729).
+2. The prototype benchmarks come from all reads of every 100th reference (1,014,154 records on 454 references).
+3. The full run B ran under py-spy at 50 Hz for 13,899 s.
+
+| Component | 1 % subset (22,337 samples) | Full run B (695,906 samples) |
+|---|---:|---:|
+| `tally_from_record`, inclusive | 81.78 % | 88.15 % |
+| `run_pileup`, self | 10.01 % | 10.72 % |
+| `write_results`, inclusive | 5.74 % | 0.17 % |
+| `_CsWatch.observe` | 0.83 % | 0.94 % |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `python scripts/raw_shares.py prof/ap_both.raw`: `# /bioproj/t/20261125.agent.sam-tagger-pileup-perf/prof/ap_both.raw  total samples: 695906`, `| read_and_tally | 694696 | 99.83 |`, `| write_results | 1210 | 0.17 |`, `| tally_from_record | 613407 | 88.15 |`, `| run_pileup | 74579 | 10.72 |`.
+- Subset: `| tally_from_record | 18267 | 81.78 |`, `| write_results | 1283 | 5.74 |`.
+
+:::
+
+### The prototype stays exact on the full data
+
+```
+level: high
+```
+
+#### reason
+
+The prototype reproduced the original output exactly on three subsets and on the full `all` BAM: 18,003,654 rows, `check_exact=True`.
+
+#### description
+
+```
+type: [text, statistic]
+```
+
+1. The prototype keeps the event order of the BAM for every event with a guard.
+2. Reads without insertion or deletion events are commutative. The prototype applies them in batches between two guarded events.
+3. On the full `all` BAM, 85,262,218 of 99,756,729 records went through 4,372,583 batches. 14,494,511 records took the per-read path. The prototype built 9,091,248 plans.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `out/all.dense.json`: `"records": 99756729`, `"rows": 18003654`, `"rows_original": 18003654`, `"equal_to_original": true`, `"batches": 4372583`, `"records_batched": 85262218`, `"plans_built": 9091248`.
+- `out/ap_both.dense.json`: `"records": 99725393`, `"rows": 17977715`, `"rows_original": 17977715`, `"equal_to_original": true`.
+
+:::
+
+## conclusion
+<!-- Interpreted claim: what we now know. level = confidence in the claim. -->
+
+### The per-base Python loop of the tally takes about 88 % of the run
+
+```
+level: high
+```
+
+#### reason
+
+py-spy puts 81.78 % of the subset samples and 88.15 % of the 695,906 samples of the full run B inside `tally_from_record`. The floor measurements agree by subtraction: 171 µs of CPU per record for the full loop, 12 µs for the per-record reads, 1 µs for the BAM decode. The stage timestamps of run A put 99.8 % of the wall-clock in the read loop.
+
+#### description
+
+```
+type: [statistic, table]
+```
+
+1. `tally_from_record` iterates over every aligned base in Python. Each base costs two closure calls, one method call and two dictionary lookups.
+2. The per-record reads of `run_pileup` take about 10.7 %. The htslib decode of the BAM takes 1.89 %.
+3. The output phase takes 29 s of the 13,186 s of run A, 0.22 %. It is 0.17 % of the samples of run B.
+4. Memory grows with the number of covered positions: 5.9 GB at the end of the read loop. The output phase raises the maximum RSS of run A to 11.9 GB.
+
+| Component | Share of samples, 1 % subset | Share of samples, full run B |
+|---|---:|---:|
+| `tally_from_record`, inclusive | 81.78 % | 88.15 % |
+| per-record pysam reads in `run_pileup` | 10.01 % | 10.72 % |
+| output phase, `write_results` inclusive | 5.74 % | 0.17 % |
+| `_CsWatch.observe` | 0.83 % | 0.94 % |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Full run B, `python scripts/raw_shares.py prof/ap_both.raw`: `| read_and_tally | 694696 | 99.83 |`, `| write_results | 1210 | 0.17 |`, `| tally_from_record | 613407 | 88.15 |`, `| record_allele | 224604 | 32.28 |`, `| run_pileup | 74579 | 10.72 |`, `| line 487 | 13155 | 1.89 |`.
+- Run A, `logs/all.log`: `23:00:35 | INFO    | Processed 99756729 records.`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 3:39:46`, `Maximum resident set size (kbytes): 12232928`.
+- Sampler, last row of run A before the output phase: `2026-11-25T23:00:32,A,2299632,2299579,95.0,6216124,03:39:11,sam-tagger` (RSS 5.93 GB).
+
+:::
+
+### Python is the bottleneck
+
+```
+level: high
+```
+
+#### reason
+
+About 89 % of the full-run samples are CPython bytecode in sam-tagger's own code: `tally_from_record` with its closures and `record_allele` (88.15 % inclusive), `_CsWatch.observe`, and the loop of `write_results`. C extensions take about 10.7 %: the pysam and htslib calls from `run_pileup`. The htslib decode alone is 1.89 %.
+
+#### description
+
+```
+type: [text, statistic]
+```
+
+1. The algorithm does O(bases) work, about 2.0 × 10^10 base observations per run.
+2. Each base observation costs about 0.53 µs of wall-clock in the original run. Run A used 0.62 µs of CPU per base observation under the load of this session (125.7 µs of CPU for a record).
+3. The C-level floor is small: `samtools view -c` decodes the 1 % subset in 0.30 to 0.47 s, and a pysam loop that only iterates costs 0.99 µs per record.
+4. A perfect single-threaded reader would need about 0.5 to 1.7 minutes for the BAM. The pileup needs 179 minutes in the original run.
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `samtools view -c` on 997,411 records, three runs: wall 0.47 s, 0.33 s, 0.30 s (user 0.35, 0.29, 0.27 s).
+- Floors, 1 % subset: iterate 0.99 µs of CPU per record.
+- Full run B, `python scripts/raw_shares.py prof/ap_both.raw`, self time by function: `| tally_from_record | 252536 | 36.29 |`, `| record_allele | 224604 | 32.28 |`, `| run_pileup | 74579 | 10.72 |`, `| _base_at | 73555 | 10.57 |`, `| passes_quality_filter | 59622 | 8.57 |`, `| observe | 6530 | 0.94 |`.
+- Run A: `User time (seconds): 12497.92`, `System time (seconds): 42.56`, for 99,756,729 records.
+
+:::
+
+### A numpy prototype with exact output is 5.8 to 7.5 times faster on the full data
+
+```
+level: high
+```
+
+#### reason
+
+The prototype and the original ran at the same time on the same subset in two rounds, with equal output and CPU ratios of 5.0 and 4.3. On the full data the prototype took 30 m 46 s and 31 m 04 s with output equal row for row. The full-data ratios are 5.8 to 7.5. The prototype ran under a lower load than the full runs of this session, so the lower end of the range is the safe number.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. Dense per-reference arrays replace one `_PositionPileup` object per position.
+2. One cached plan per (start, cs tag) holds the parsed operations and a one-hot block per match run.
+3. One read is a quality comparison and four contiguous slice additions.
+4. Reads without insertion or deletion events form one batch per key and strand between two guarded events. On the full `all` BAM, 85.3 M of 99.8 M records went through 4.4 M batches.
+5. The remaining cost is the per-record pysam access, plan building for rare cs variants, and numpy call overhead. A compiled loop is the next step beyond this design.
+6. The prototype keeps every output row in memory. Its maximum RSS is 7.7 GB through the Parquet write, against 11.9 GB for the original code. A streaming output removes this.
+
+| Run | Original code | Prototype | Ratio | Output |
+|---|---:|---:|---:|---|
+| Subset, round 1, per-read mode, at the same time | 154.5 s CPU | 31.1 s CPU | 5.0 | equal |
+| Subset, round 2, consecutive-run batch mode, at the same time | 135.2 s CPU | 31.2 s CPU | 4.3 | equal |
+| Subset, per-read mode against per-key batch mode, at the same time | 35.5 s CPU | 24.5 s CPU | 1.45 | equal |
+| Full `all`, against run A of this session | 13,186 s wall | 1,846 s wall | 7.1 | equal |
+| Full `all`, against the original run of 2026-11-18 | 10,735 s wall | 1,846 s wall | 5.8 | equal |
+| Full `ap_both`, against run B of this session | 13,931 s wall | 1,864 s wall | 7.5 | equal |
+| Full `ap_both`, against the original run of 2026-11-18 | 10,734 s wall | 1,864 s wall | 5.8 | equal |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Round 1, `/usr/bin/time -v`: `User time (seconds): 153.74`, `System time (seconds): 0.80`, `Elapsed (wall clock) time: 2:41.61`. Prototype: `loop_cpu_s 31.064`, `total_wall_s 33.251`.
+- Round 2: `User time (seconds): 134.72`, `System time (seconds): 0.45`, `Elapsed: 2:21.54`. Prototype: `loop_cpu_s 31.17`, `total_wall_s 33.235`.
+- Per-key batch mode against per-read mode at the same time: `loop_cpu_s` 24.527 against 35.526, `total_wall_s` 26.09 against 38.87.
+- Equality, `assert_frame_equal(check_exact=True)`: `rows_original 181653`, `rows_prototype 181653`, `equal_to_original true` on the three subsets.
+- Full `all`, `logs/dense_full_all.log`: `User time (seconds): 1768.85`, `System time (seconds): 14.88`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 30:46.00`, `Maximum resident set size (kbytes): 9819240`. `out/all.dense.json`: `"equal_to_original": true`.
+- Full `ap_both`, `logs/dense_full_ap_both.log`: `User time (seconds): 1786.46`, `System time (seconds): 14.72`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 31:04.20`. `out/ap_both.dense.json`: `"equal_to_original": true`.
+
+:::
+
+## observation
+<!-- What was noticed in data or behavior, without interpretation. -->
+
+### The two original runs took 2 h 58 m 55 s and 2 h 58 m 54 s
+
+```
+level: high
+```
+
+#### reason
+
+The rule logs of the pipeline record start and end time of both runs.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. Run `all` started at 2026-11-18T08:04:42Z and ended at 11:03:37Z.
+2. Run `ap_both` started at 08:12:52Z and ended at 11:11:46Z.
+3. The two runs overlapped for 2 h 51 m. The rule sets `threads = 1`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`S34_1__variant_call__sam_tagger/GO11-poolA-2_1.GO00011-poolA-Reference.all.default.log`:
+
+```
+=== rulename=S34_1__variant_call__sam_tagger start=2026-11-18T08:04:42+0000
+=== rulename=S34_1__variant_call__sam_tagger end=2026-11-18T11:03:37+0000 rc=0
+```
+
+`...ap_both.default.log`:
+
+```
+=== rulename=S34_1__variant_call__sam_tagger start=2026-11-18T08:12:52+0000
+=== rulename=S34_1__variant_call__sam_tagger end=2026-11-18T11:11:46+0000 rc=0
+```
+
+:::
+
+### Each run counts about 2.0 × 10^10 base observations on 45,759 references
+
+```
+level: high
+```
+
+#### reason
+
+The numbers come from `samtools idxstats`, from the existing Parquet files and from the first 400,000 records.
+
+#### description
+
+```
+type: [statistic, table]
+```
+
+1. Reads are mostly one 204 bp match op. 81.7 % of the first 400,000 records have CIGAR `9S204M`.
+2. Insertion and deletion observations are 0.02 % of all observations. Almost every loop iteration takes the match branch.
+3. The two BAMs differ by 31,336 records (0.03 %).
+4. Neither BAM holds secondary or supplementary records. The 0.9.0 skip of secondary records changes nothing on this data.
+
+| Quantity | `all` | `ap_both` |
+|---|---:|---:|
+| Records | 99,756,729 | 99,725,393 |
+| BAM size | 3.4 GB | 3.4 GB |
+| Output rows | 18,003,654 | 17,977,715 |
+| Depth summed over positions | 20,224,168,245 | 20,219,428,238 |
+| Maximum depth | 10,966 | 10,963 |
+| Secondary (0x100) records | 0 | 0 |
+| Supplementary (0x800) records | 0 | 0 |
+
+References: 45,759, 9,333,828 bp in total, longest 204 bp.
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `samtools idxstats`:
+
+```
+refs	45759	refs_nonzero	45758	total_ref_len	9333828	min_len	0	max_len	204	mapped	99756729	unmapped	0
+refs	45759	refs_nonzero	45758	total_ref_len	9333828	min_len	0	max_len	204	mapped	99725393	unmapped	0
+```
+
+- Polars on the existing outputs: `all rows 18003654`, `dp_sum_positions 20224168245`, `dp_max 10966`; `ap_both rows 17977715`, `dp_sum_positions 20219422838`, `dp_max 10963`. Allele kinds in `all`: `+` 468,685 and `-` 3,547,704 observations.
+- First 400,000 records: `326606 9S204M`, `36846 9S180M`. cs op counts: `75101 *`, `1935 +`, `13818 -`, 579,409 ops in total.
+- `samtools view -c -f 256` and `-f 2048` on both BAMs: `0`.
+
+:::
+
+### py-spy puts 81.78 % of the subset samples inside the tally function
+
+```
+level: high
+```
+
+#### reason
+
+The profile has 22,337 samples from the 1 % subset at 100 Hz. The counts come from the raw collapsed stacks, not from reading a flamegraph.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. The match branch of `tally_from_record` (`pileup_stats.py:205-223`) holds most of the self time: the loop body itself 35.22 %, `record_allele` 23.03 %, `_base_at` 9.02 %, `passes_quality_filter` 7.36 %.
+2. Every new position creates one `_PositionPileup` object. The dataclass constructor takes 6.83 %.
+3. cProfile counts the calls: 20,230,009 calls of `record_allele` for 99,759 records, 202.8 per record.
+
+| Group | Samples | Share |
+|---|---:|---:|
+| `tally_from_record`, inclusive | 18,267 | 81.78 % |
+| `tally_from_record`, self | 7,866 | 35.22 % |
+| `_PositionPileup.record_allele`, self | 5,145 | 23.03 % |
+| `_base_at`, self | 2,014 | 9.02 % |
+| `passes_quality_filter`, self | 1,645 | 7.36 % |
+| `_PositionPileup.__init__`, self | 1,526 | 6.83 % |
+| `run_pileup`, self (calls into pysam) | 2,236 | 10.01 % |
+| `write_results`, inclusive | 1,283 | 5.74 % |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+`python scripts/raw_shares.py prof/sub1pct.raw`, verbatim rows:
+
+```
+| phase | samples | share % |
+| read_and_tally | 21054 | 94.26 |
+| write_results | 1283 | 5.74 |
+| tally_from_record | 18267 | 81.78 |
+| record_allele | 5145 | 23.03 |
+| passes_quality_filter | 1645 | 7.36 |
+| _base_at | 2014 | 9.02 |
+| observe | 186 | 0.83 |
+| tally_from_record | 7866 | 35.22 |
+| record_allele | 5145 | 23.03 |
+| run_pileup | 2236 | 10.01 |
+| _base_at | 2014 | 9.02 |
+```
+
+cProfile on 99,759 records (0.1 % subset), 169,256,047 calls in 84.42 s:
+
+```
+    99759   27.588    0.000   69.295    0.001 pileup_stats.py:141(tally_from_record)
+ 20230009   13.901    0.000   16.911    0.000 pileup_stats.py:33(record_allele)
+ 40519864    6.239    0.000    6.239    0.000 {method 'get' of 'dict' objects}
+        1    6.046    6.046   15.945   15.945 pileup_stats.py:304(write_results)
+ 20211896    5.359    0.000    7.608    0.000 pileup_stats.py:185(_base_at)
+ 20338895    5.200    0.000    7.517    0.000 pileup_stats.py:162(passes_quality_filter)
+```
+
+Flamegraph: `/bioproj/t/20261125.agent.sam-tagger-pileup-perf/prof/sub1pct.svg`.
+
+:::
+
+### The record loop computes two values per record that the tally never uses
+
+```
+level: high
+```
+
+#### reason
+
+py-spy attributes 3.65 % of the samples to `lib.py:504-505`. The floor measurements show the same saving: 11.84 µs against 4.63 µs of CPU per record.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. `lib.py:504-505` passes `record.query_name` and `(record.query_sequence or "").encode()` to `tally_from_record`.
+2. `tally_from_record` has the parameters `qname` and `read_seq` and uses neither (`pileup_stats.py:141-302`).
+3. `lib.py:491` calls `watch.observe(record)`, which calls `record.has_tag("cs")`. `lib.py:493` calls `has_tag("cs")` again.
+4. `pileup_stats.py:160` converts the quality array to a Python list for every record.
+
+| Line in `run_pileup` | Call | Samples | Share |
+|---|---|---:|---:|
+| 505 | `(record.query_sequence or "").encode()` | 760 | 3.40 % |
+| 487 | `for record in bam_reader.fetch(until_eof=True)` | 407 | 1.82 % |
+| 497 | `str(record.get_tag("cs"))` | 175 | 0.78 % |
+| 495 | `bam_reader.get_reference_name(record.reference_id)` | 175 | 0.78 % |
+| 496 | call of `tally_from_record` | 139 | 0.62 % |
+| 119 | `record.has_tag("cs")` in `observe` | 126 | 0.56 % |
+| 510 | `collector.write_results(args.output)` | 116 | 0.52 % |
+| 500 | `record.query_qualities or ()` | 115 | 0.51 % |
+| 492 | `record.cigartuples` | 90 | 0.40 % |
+| 489 | `record.is_unmapped or record.is_secondary` | 63 | 0.28 % |
+| 504 | `record.query_name or ""` | 55 | 0.25 % |
+| 493 | `not record.has_tag("cs")` | 50 | 0.22 % |
+| 502 | `record.is_reverse` | 24 | 0.11 % |
+
+#### evidence
+
+```
+level: high
+type: [text, table]
+```
+
+::: {.callout-note collapse="true"}
+
+- `src/sam_tagger/lib.py:504-505`:
+
+```
+                record.query_name or "",
+                (record.query_sequence or "").encode(),
+```
+
+- `scripts/raw_shares.py`, section "run_pileup self time by line (C calls from that line)": `line 505 | 760 | 3.40`, `line 504 | 55 | 0.25`, `line 493 | 50 | 0.22`.
+- Floors, 1 % subset, CPU µs per record: `per_record_full 11.84`, `per_record_trim 4.63`.
+
+:::
+
+### The floor is small: 1 µs of pysam iteration and 0.3 to 0.5 µs of htslib decode per record
+
+```
+level: high
+```
+
+#### reason
+
+Each stage read the same 997,411 records once. The stages ran one after another under a changing load, so the spread between stages of the same code is about 10 to 20 %.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. The pysam iteration alone costs 0.99 µs of CPU per record.
+2. The per-record reads of `run_pileup` add 10.85 µs.
+3. `tally_from_record` adds about 160 µs. It is 93 % of the loop.
+4. The output of the 1 % subset (8,622,038 rows) takes 14.5 s. The memory after the loop is 3.6 GB for 8,408,224 covered positions.
+
+| Stage (997,411 records) | CPU µs per record |
+|---|---:|
+| pysam iteration only | 0.99 |
+| iteration plus the per-record reads of `run_pileup` | 11.84 |
+| same without the unused reads and the duplicate `has_tag` | 4.63 |
+| full loop with `tally_from_record`, no output | 171.1 |
+| trimmed loop with `tally_from_record`, no output | 139.4 |
+| `run_pileup`, loop plus output | 154.7 |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/floors.log` and `sub/out/floors/floors.json`:
+
+```
+iterate                wall     1.102 s  cpu     0.989 s
+per_record_full        wall    13.129 s  cpu    11.806 s
+per_record_trim        wall     5.308 s  cpu     4.619 s
+real_loop (full)       wall   217.030 s  cpu   186.688 s
+real_loop (trim)       wall   158.425 s  cpu   152.974 s
+run_pileup             wall   160.730 s  cpu   154.280 s
+real_loop_full: loop_cpu_s 170.703, write_cpu_s 14.492, positions_covered 8408224, rss_after_loop_mb 3601.16, rss_after_write_mb 4472.598
+```
+
+- `/usr/bin/time` of the plain 1 % run: `User time (seconds): 174.29`, `System time (seconds): 4.05`, `Percent of CPU this job got: 89%`, `Elapsed (wall clock) time: 3:18.93`, `Maximum resident set size (kbytes): 6573332`. Stage split: read loop 182 s, output phase 14 s.
+
+:::
+
+### Full runs of this session took 3 h 40 m and 3 h 52 m under load
+
+```
+level: high
+```
+
+#### reason
+
+The logs hold the `time -v` output and the stage timestamps of both runs. The CPU time of run B is an estimate, because GNU time measured py-spy and not the worker.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. Run A (`all`) is the clean baseline under `/usr/bin/time -v`. Run B (`ap_both`) ran under py-spy at 50 Hz.
+2. Both runs started at 19:21 and 19:22 CST on a machine with a load average of 13 to 26. The wall-clock is 1.23 times (A) and 1.30 times (B) the wall-clock of the original runs.
+3. py-spy costs about 5 %. Run B takes 5.6 % more wall-clock and about 5 % more CPU than run A.
+4. The outputs of both runs equal the original outputs row for row. The timing comparison therefore covers the same work.
+
+| Measure | Original `all` | Run A | Original `ap_both` | Run B |
+|---|---:|---:|---:|---:|
+| Wall-clock | 10,735 s | 13,186 s | 10,734 s | 13,931 s |
+| CPU, user + sys | not logged | 12,540.5 s | not logged | about 13,100 s |
+| CPU use | not logged | 95 % | not logged | 94.3 % |
+| Read loop | not logged | 13,153 s | not logged | 13,899 s |
+| Output phase | not logged | 29 s | not logged | 28 s |
+| Maximum RSS | not logged | 11,946 MB | not logged | 5.92 GB at loop end |
+| Wall-clock per record | 107.6 µs | 132.2 µs | 107.6 µs | 139.7 µs |
+| CPU per record | not logged | 125.7 µs | not logged | about 131.5 µs |
+| Output equal to the original | — | yes | — | yes |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Run A, `logs/all.log`: `19:21:22 | INFO    | Processing BAM records for pileup statistics...`, `23:00:35 | INFO    | Processed 99756729 records.`, `23:01:04 | INFO    | pileup complete.`, then `User time (seconds): 12497.92`, `System time (seconds): 42.56`, `Percent of CPU this job got: 95%`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 3:39:46`, `Maximum resident set size (kbytes): 12232928`.
+- Run B, `logs/ap_both.log`: `19:22:22 | INFO    | Processing BAM records for pileup statistics...`, `23:14:01 | INFO    | Processed 99725393 records.`, `23:14:29 | INFO    | pileup complete.`
+- Sampler: `2026-11-25T23:00:32,A,2299632,2299579,95.0,6216124,03:39:11,sam-tagger` and `2026-11-25T23:13:39,B,2314876,2314875,94.3,6206708,03:51:18,sam-tagger`. RSS grows linearly in both runs.
+- `python scripts/compare_outputs.py out/all.pileup.parquet <original all.pileup.parquet>`: `"rows_new": 18003654`, `"rows_original": 18003654`, `"refs_new": 45432`, `"equal": true`. For `ap_both`: `"rows_new": 17977715`, `"rows_original": 17977715`, `"equal": true`.
+
+:::
+
+### The quality filter ignores the leading soft clip
+
+```
+level: high
+```
+
+#### reason
+
+A crafted record reproduces the behavior. The code reads the quality at the cs read position from the start of the stored read.
+
+#### description
+
+```
+type: [text, statistic]
+```
+
+1. `tally_from_record` starts `read_pos` at 0 at the first cs operation (`pileup_stats.py:196`). It reads `qual[read_pos + i]` from `record.query_qualities`, which starts at the first stored base.
+2. With a leading soft clip, the aligned bases start later in the stored read. The quality of the wrong base filters each of the first bases.
+3. Test: one `3S27M` read. The 27 aligned bases have Q40. The 3 soft-clipped bases have Q10. The output starts at position 4 and has 24 rows.
+4. Most S34_1 reads start with a soft clip: 81.7 % of the first 400,000 records are `9S204M`. Their first 9 aligned bases are filtered by the qualities of the soft-clipped bases.
+5. This finding is outside the speed question. This task changed no source.
+
+#### evidence
+
+```
+level: high
+type: [text, statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+- `pileup_stats.py:160` `qual = list(qual_scores)`, `:196` `read_pos: int = 0`, `:163` `return rp < len(qual) and qual[rp] >= self._min_base_qual`.
+- Test file `sub/softclip_test/one.sam`, verbatim:
+
+```
+@HD	VN:1.6	SO:coordinate
+@SQ	SN:ref1	LN:32
+r1	0	ref1	1	60	3S27M	*	0	0	TTTACGTACGTACGTACGTACGTACGTACG	+++IIIIIIIIIIIIIIIIIIIIIIIIIII	NM:i:0	cs:Z::27
+```
+
+- `sam-tagger pileup one.bam one.pileup.parquet --fasta ref.fa --min-base-qual 20`, then Polars on the output: `rows 24 first pos 4 last pos 27`.
+
+:::
+
+### The prototype took 30 m 46 s and 31 m 04 s on the full BAMs with exact output
+
+```
+level: high
+```
+
+#### reason
+
+Both runs ended with exit status 0. The equality check against the original outputs passed with `check_exact=True` for both inputs.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. Both prototype runs started at 23:16 CST, after the two full pileup runs ended. They ran at the same time under a load average of 7 to 9.
+2. The prototype used 17.9 µs of CPU per record. The original code used 125.7 µs in run A under a load average of 13 to 26, and 107.6 µs of wall-clock per record in the original run.
+3. The maximum RSS of the prototype is 7.7 GB through the Parquet write. The output stage keeps every row as arrays and builds two DataFrame copies. The 9.6 GB of `time -v` includes the equality check, which loads both outputs.
+
+| Measure | Prototype `all` | Prototype `ap_both` |
+|---|---:|---:|
+| Records | 99,756,729 | 99,725,393 |
+| Rows | 18,003,654 | 17,977,715 |
+| Wall-clock | 1,846 s | 1,864 s |
+| CPU, user + sys | 1,783.7 s | 1,801.2 s |
+| CPU use | 96 % | 96 % |
+| Maximum RSS through the Parquet write | 7,708 MB | 7,694 MB |
+| Maximum RSS with the equality check (`time -v`) | 9,589 MB | 9,477 MB |
+| CPU per record | 17.9 µs | 18.1 µs |
+| Batches | 4,372,583 | 4,371,423 |
+| Plans built | 9,091,248 | 9,061,152 |
+| Output equal to the original | yes | yes |
+
+#### evidence
+
+```
+level: high
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/dense_full_all.log`: `User time (seconds): 1768.85`, `System time (seconds): 14.88`, `Percent of CPU this job got: 96%`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 30:46.00`, `Maximum resident set size (kbytes): 9819240`.
+- `logs/dense_full_ap_both.log`: `User time (seconds): 1786.46`, `System time (seconds): 14.72`, `Percent of CPU this job got: 96%`, `Elapsed (wall clock) time (h:mm:ss or m:ss): 31:04.20`, `Maximum resident set size (kbytes): 9704840`.
+- `out/all.dense.json`: `"rows_original": 18003654`, `"rows_prototype": 18003654`, `"equal_to_original": true`. `out/ap_both.dense.json`: `"rows_original": 17977715`, `"rows_prototype": 17977715`, `"equal_to_original": true`.
+
+:::
+
+## process
+<!-- Audit of the significant actions and decisions between plan and report. -->
+
+### used uniform read subsamples for the first benchmark
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first subsets took 1 % and 0.1 % of the reads at random. A reference then has 2 to 22 reads instead of 2,180.
+2. Almost every read of such a subset has a unique (start, cs tag) pair, so the plan cache of the prototype missed on 48 % of the reads, and the first timing of the prototype showed no gain.
+3. The better subset keeps the read depth: all reads of every 100th reference (454 references, 1,014,154 reads). All later benchmarks use it.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- 0.1 % subset: `plans_built 47508` for 99,759 records, `loop_wall_s 58.49`.
+- Depth-preserving subset: `plans_built 93118` for 1,014,154 records, `loop_cpu_s` 24.5 to 31.2.
+
+:::
+
+### ran the original and the prototype at the same time
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The load average moved between 13 and 26 during the task. Runs minutes apart differed by 10 to 20 % in CPU time.
+2. The A/B script starts the original and the prototype together and compares CPU time.
+3. Two rounds gave ratios of 5.0 and 4.3.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/ab_bench_refs1pct.out`: round 1 load `13.48 14.07 15.76`, round 2 load `15.52 14.55 15.67`.
+- Floors in sequence: 171.1 µs and 139.4 µs of CPU per record for loops that differ by 7 µs.
+
+:::
+
+### proved prototype exactness before measuring speed
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The prototype has an equality check against the original output with `check_exact=True`.
+2. The first complete runs found two defects of the output stage: the numeric part of an indel row held the allele string, and the reference base was missing on insertion and deletion rows. Two more defects stopped the prototype at start (a startup-order error and an empty column placeholder).
+3. After the corrections, three subsets matched row for row.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- First check: `equal_to_original false`, `rows_with_different_values 9018`, `value mismatch for column "ref"`.
+- After the correction: `equal_to_original true` on 181,653, 6,372,553 and 8,622,038 rows.
+
+:::
+
+### batched consecutive reads first, then switched to per-key batches
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first batch mode grouped consecutive reads with one plan and one strand. Runs are short: 252,150 batches for 973,365 reads, 3.9 reads per batch.
+2. That mode took 31.2 s of CPU in round 2 of the A/B benchmark. The per-read mode took 31.1 s in round 1. The gain was zero.
+3. The better design groups all reads of one key for the whole reference. Reads with an insertion or deletion event are order barriers and flush the buffers. Result: 45,071 batches for 864,840 reads, 24.5 s of CPU against 35.5 s for the per-read mode at the same time.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Consecutive-run mode in A/B round 2: `batches 252150`, `records_batched 973365`, `loop_cpu_s 31.17`. Per-read mode in round 1: `loop_cpu_s 31.064`.
+- Per-key mode: `batches 45071`, `records_batched 864840`, `loop_cpu_s 24.527`.
+
+:::
+
+### started the long runs detached with a sampler and a follow-up cron
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The two full runs started with `setsid nohup` and outlived the tool call. A detached sampler wrote CPU and RSS every 60 s.
+2. A background waiter and a durable one-shot cron at 23:20 collect the results, also after a session restart.
+3. The scheduled job fired at 19:17, 76 minutes late. The follow-up time moved from 21:45 to 23:20 to match.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `ps` after the launch: `2299572 1 ... time`, `2299579 2299572 ... pixi`, `2299632 2299579 84.0 ... sam-tagger`.
+- `logs/sampler.csv` every 60 s for both process trees.
+
+:::
+
+### put a wrong argument position in the launch line of the record-count job
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The launch line passed the directory as `$0` of `bash -c` and read it from `$1`. The job stopped at once with `cd: pixi: No such file or directory`.
+2. The job cost two minutes and no data. The corrected line uses `$0` for the directory.
+3. The better action is one launch helper for every detached job, as `run_full.sh` does for the two full runs.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/count_secondary.log` before the correction: `line 1: cd: pixi: No such file or directory`, `line 1: exec: run: not found`.
+
+:::
+
+### wrapped py-spy in GNU time for the profiled run
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. `/usr/bin/time -v py-spy record …` measured py-spy: 101.01 s user, 180.76 s system, 7 MB. A traced process does not report its resource use to the tracer.
+2. The CPU time of run B is therefore an estimate from the sampler (94.3 % of 13,878 s).
+3. The better action is to put `/usr/bin/time -v` around the Python command inside the py-spy command line.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/ap_both.log`: `User time (seconds): 101.01`, `System time (seconds): 180.76`, `Percent of CPU this job got: 2%`, `Maximum resident set size (kbytes): 7128`.
+
+:::
+
+### held back the full-size prototype run until the two full runs end
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The brief allows two full runs plus at most three extra cores. A full-size prototype run is a third full run.
+2. The full-size equality check of the prototype started at 23:16, after the two full pileup runs ended. Both inputs ran at the same time.
+3. Both outputs are exactly equal to the original outputs. The runs took 30 m 46 s and 31 m 04 s.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- `logs/dense_full.log`: `start 23:15:55`, `all rc=0 23:46:41`, `ap_both rc=0 23:47:03`.
+- `logs/dense_full_all.log`: `Elapsed (wall clock) time (h:mm:ss or m:ss): 30:46.00`, `User time (seconds): 1768.85`, `System time (seconds): 14.88`, `Maximum resident set size (kbytes): 9819240`, `Exit status: 0`.
+- `logs/dense_full_ap_both.log`: `Elapsed (wall clock) time (h:mm:ss or m:ss): 31:04.20`, `User time (seconds): 1786.46`, `System time (seconds): 14.72`.
+
+:::
+
+## change
+<!-- File, git, pixi, and env mutations made. level = high, these are facts. -->
+
+### files and jobs of this task
+
+```
+level: high
+```
+
+#### reason
+
+Every path comes from the file system and from `git log` at the end of the task.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. No source file of sam-tagger changed. `src/`, `pixi.toml` and `pyproject.toml` are as at commit `2efff38`.
+2. The scratch directory is its own git repository. BAM and Parquet files are ignored there.
+
+| Verb | Path | Content |
+|---|---|---|
+| created | `docs/plans/20261125-191732_pileup-perf-investigation.plan.qmd` | plan |
+| created | `docs/plans/20261125-235011_pileup-perf-investigation.report.qmd` | this report |
+| created | `/bioproj/t/20261125.agent.sam-tagger-pileup-perf/` | scratch: `scripts/`, `logs/`, `prof/`, `sub/`, `out/`, `README.md`, `pixi.toml` |
+| updated | `.claude/scheduled_tasks.json` (git-excluded) | cron `409a7590` fired at 19:17 and auto-deleted. Follow-up jobs `2b47854d`, `d32a3ef7`, `6c59f947` created and deleted again |
+| appended | `docs/misc/requirements_audit.qmd`, `next_and_recommendation.qmd`, `caveat_and_limitation.qmd` | audit entry, rolling items |
+| environment | scratch pixi env `default` | python 3.13.18, pysam 0.24.1, polars 2.1.0, numpy 2.5.5, samtools 1.25, py-spy 0.4.4 |
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+- sam-tagger repository, branch `main`, not pushed: `2efff38` (docs: schedule the cron), `e6bc1db` (docs: plan and interim audit), plus this docs commit (final plan, this report, `docs/misc/*`). No change under `src/`, `tests/`, `pixi.toml`, `pyproject.toml`. The rendered `*.report.html` and `*_files/` are build outputs and stay uncommitted.
+- `docs/misc/requirements_audit.qmd`: entries "schedule one-shot 18:01 cron for the pileup slowness investigation" and "investigate the 3 h sam-tagger pileup runs of ecsngsqc S34_1".
+- Scratch repository `/bioproj/t/20261125.agent.sam-tagger-pileup-perf`: commits `da5a900`, `ebeeace`, plus the final commit with the full-run logs, profiles and the report draft. Ignored there: `sub/*.bam`, `sub/out/`, `out/`, `pids/`, `*.report.html`, `*_files/`.
+- Pipeline workspace `WS`: read-only. No file was written there. The two full runs wrote to `SCRATCH/out/`.
+
+:::
+
+## other
+<!-- Content that fits no category. Every item must carry proposed-structure. -->
+
+### ranked speedup proposals
+
+```
+level: medium
+proposed-structure: a report category "proposal" for evaluated options that the task did not implement
+```
+
+#### reason
+
+The gain of rows 1 and 3 is measured with exact output. The gain of rows 2, 4 and 5 is an estimate from the floors and from the record counts. No proposal is implemented in sam-tagger.
+
+#### description
+
+```
+type: [table, text]
+```
+
+1. Dense per-reference arrays with cached plans and bulk match-run counting. The prototype exists in `scripts/dense_pileup.py` of the scratch directory.
+2. Process parallelism over references. Counts are additive per reference, and the guards act inside one reference. Workers can take ranges of a coordinate-sorted BAM.
+3. Drop the unused per-record work: `query_name`, `query_sequence`, the duplicate `has_tag`, and the list conversion of the qualities.
+4. A compiled hot loop, if the first two steps are not enough.
+5. At pipeline level, compute the pileup once. The `ap_both` input differs from `all` by 0.03 % of the records.
+
+| Rank | Method | Expected gain | Basis | Output risk | Cost |
+|---|---|---|---|---|---|
+| 1 | Dense arrays, cached plans, numpy match runs | 4.3 to 5.0× at the same time on a subset, 5.8 to 7.5× on the full data | concurrent A/B, exact output on three subsets and on both full BAMs | low: exact on the full data. 7.7 GB maximum RSS until the output streams | medium: rewrite of `pileup_stats.py` and the loop of `run_pileup` |
+| 2 | Process parallelism over references | ÷ 5 to ÷ 6 on 6 cores, multiplies with rank 1 | structure of the counts, no benchmark | low | medium |
+| 3 | Drop unused per-record work | 3.9 % | py-spy lines 504, 505, 493. Floors 11.84 → 4.63 µs | none | 3 lines |
+| 4 | Compiled hot loop (Rust, Cython, numba) | 20× or more | decode floor 0.3 to 0.5 µs per record | medium | high: native extension and packaging |
+| 5 | One pileup run instead of two in ecsngsqc | halves the step | 31,336 of 99.7 M records differ | product decision | pipeline change |
+
+#### evidence
+
+```
+level: medium
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+- Prototype: `/bioproj/t/20261125.agent.sam-tagger-pileup-perf/scripts/dense_pileup.py`.
+- Benchmark: `scripts/ab_bench.sh`, results in `logs/ab_bench_refs1pct.out` and `sub/out/*.json`.
+- Full data, `out/all.dense.json`: `"loop_cpu_s": 1752.14`, `"total_wall_s": 1842.73`, `"max_rss_mb": 7708.12`, `"equal_to_original": true`. `logs/dense_full_all.log`: `Elapsed (wall clock) time (h:mm:ss or m:ss): 30:46.00`.
+- Full data, `out/ap_both.dense.json`: `"total_wall_s": 1860.98`, `"equal_to_original": true`.
+
+:::

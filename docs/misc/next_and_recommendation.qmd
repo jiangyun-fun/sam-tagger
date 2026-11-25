@@ -5,13 +5,11 @@ author: "Yun Jiang"
 
 ## next
 
-1. H: after the two full runs end (about 23:40 and 00:00), complete the pileup
-   investigation: timing table, profile of run B, output comparison against
-   the originals, full-size prototype check, final report from the scratch
-   draft (cron `d32a3ef7` at 00:05 does this if the session ended).
-2. H: decide on the soft-clip quality offset in pileup — the first 9 aligned
+1. H: decide on the soft-clip quality offset in pileup — the first 9 aligned
    bases of `9S204M` reads are filtered by the soft-clip qualities
    (`pileup_stats.py:160-163,196`); fix it with a test if confirmed.
+2. M: implement the chosen pileup speedups of the performance report in
+   sam-tagger, with an equality test against the S34_1 outputs.
 3. M: ecsngsqc migration to sam-tagger must target 0.8.0: drop the
    `amplification_primer_*_seq` columns from the generated config (rename to
    `amp_primer_*` in the same change) and pass `--fasta` to the AP rules (S31
@@ -24,8 +22,6 @@ author: "Yun Jiang"
    pixi bin and fails at collection.
 6. M: decide whether supplementary (0x800) records count in read-level
    metrics (total_reads/FL/on_target/AP); base-level metrics keep them.
-7. M: read the final pileup performance report and implement the chosen
-   speedups with an equality test against the S34_1 outputs.
 
 ## recommendation
 
@@ -40,9 +36,9 @@ author: "Yun Jiang"
    second 3 h run adds almost nothing; emit AP-both columns in one pass
    or drop the second run.
 4. M: port the dense-array design of the scratch prototype into sam-tagger
-   (4.3 to 6.3 times faster, exact output on three subsets) and add
-   per-reference process parallelism; keep the current path for BED
-   intervals until it is ported.
+   (5.8 to 7.5 times faster on the full data, exact output), add
+   per-reference process parallelism, and stream the output to cut the
+   7.7 GB peak; keep the current path for BED intervals until it is ported.
 5. M: add a `to_n` column (or N split) to error.parquet so pairloom-
    unresolved N calls stay separable from true substitutions.
 6. M: submit sam-tagger 0.9.0 to bioconda — `recipes/sam-tagger/meta.yaml`

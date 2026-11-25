@@ -1103,19 +1103,28 @@ change.
 5. Found: the quality filter ignores the leading soft clip
    (`pileup_stats.py:160-163,196`); reproduced with a crafted record; not
    changed.
-6. Pending: the two full runs (started 19:21 and 19:22 under load 13 to 26)
-   end at about 23:40 and 00:00; the timing table, the full-run profile, the
-   output comparison, the full-size prototype check and the final report
-   follow (cron `d32a3ef7` at 00:05).
+6. Verified: full runs A and B took 13,186 s and 13,931 s of wall-clock
+   under load (original 10,735 s); read loop 99.8 %, output phase 29 s; both
+   outputs equal the originals row for row.
+7. Verified: the full-run profile (695,906 samples) holds 88.15 % inside
+   `tally_from_record`, 10.72 % in per-record pysam reads, 0.17 % output.
+8. Verified: full-size prototype runs on both BAMs took 30 m 46 s and
+   31 m 04 s with output exactly equal; 5.8 to 7.5 times faster.
+9. Implemented: report
+   `docs/plans/20261125-235011_pileup-perf-investigation.report.qmd`
+   (rendered) and the plan rewritten to match the real course.
 
 ### change
 
-Files: created `docs/plans/20261125-191732_pileup-perf-investigation.plan.qmd`;
-appended `docs/misc/*`. Scratch directory with its own git repository (outside
-this repo): `/bioproj/t/20261125.agent.sam-tagger-pileup-perf` (scripts, logs,
-profiles, subsets, report draft).
+Files: created `docs/plans/20261125-191732_pileup-perf-investigation.plan.qmd`
+(rewritten at the end) and
+`docs/plans/20261125-235011_pileup-perf-investigation.report.qmd` (rendered,
+HTML not committed); appended `docs/misc/*`. Scratch directory with its own
+git repository (outside this repo):
+`/bioproj/t/20261125.agent.sam-tagger-pileup-perf` (scripts, logs, profiles,
+subsets, outputs, report draft; commits `da5a900`, `ebeeace`, final commit).
 Packages/Environments: scratch pixi env `default` — python 3.13.18, pysam
 0.24.1, polars 2.1.0, numpy 2.5.5, samtools 1.25, py-spy 0.4.4.
-Git: docs commit on main; no source changes. Cron: `409a7590` fired and
-auto-deleted; follow-up cron `d32a3ef7` (durable, one-shot at 00:05) persisted
-in `.claude/scheduled_tasks.json` (git-excluded).
+Git: docs commits `e6bc1db` and the final docs commit on main; no source
+changes; not pushed. Cron: `409a7590` fired at 19:17 and auto-deleted;
+follow-up jobs `2b47854d`, `d32a3ef7`, `6c59f947` created and deleted.
