@@ -19,6 +19,7 @@ from loguru import logger
 
 from sam_tagger.bed import Interval, position_in_intervals, read_overlaps_intervals
 from sam_tagger.parquet_writer import write_df_to_parquet
+from sam_tagger.processing import BAM_CHARD_CLIP, BAM_CSOFT_CLIP
 
 
 @dataclass
@@ -157,7 +158,17 @@ class PileupStatsCollector:
             return
 
         is_forward = not is_reverse
+        # cs starts at the first aligned base; QUAL keeps soft clips and is reversed for 0x10.
         qual = list(qual_scores)
+        if is_reverse:
+            qual.reverse()
+        lead_clip = 0
+        for op, length in cigartuples:
+            if op == BAM_CSOFT_CLIP:
+                lead_clip += length
+            elif op != BAM_CHARD_CLIP:
+                break
+        qual = qual[lead_clip:]
 
         def passes_quality_filter(rp: int) -> bool:
             return rp < len(qual) and qual[rp] >= self._min_base_qual
