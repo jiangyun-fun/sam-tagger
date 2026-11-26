@@ -547,6 +547,58 @@ def test_pileup_quality_filter(tmp_path: Path) -> None:
     assert pl.read_parquet(out).height == 0  # all bases below qual threshold
 
 
+def _pileup_rows(col: PileupStatsCollector, tmp_path: Path) -> list[tuple[int, str]]:
+    out = tmp_path / "pile.parquet"
+    col.write_results(out)
+    return [(r[0], r[1]) for r in pl.read_parquet(out).select("pos", "alt").iter_rows()]
+
+
+def test_pileup_quality_index_skips_leading_soft_clip(tmp_path: Path) -> None:
+    # 3S27M: the 3 soft-clipped bases have Q2 and the 27 aligned bases Q40.
+    col = PileupStatsCollector(
+        min_base_qual=20,
+        ref_names=["ref1"],
+        ref_lengths={"ref1": 30},
+    )
+    col.tally_from_record(
+        ":27",
+        [(4, 3), (0, 27)],
+        0,
+        (2, 2, 2) + (40,) * 27,
+        "ref1",
+        False,
+        CS_REGEX,
+        "r1",
+        b"A" * 30,
+    )
+    rows = _pileup_rows(col, tmp_path)
+    assert [pos for pos, _ in rows] == list(range(1, 28))
+
+
+def test_pileup_quality_index_of_reverse_read(tmp_path: Path) -> None:
+    # A 0x10 record stores QUAL reverse-complemented: for 3S27M the soft clip
+    # is the end of QUAL, and cs base 0 is QUAL index 26.
+    qual = (40,) * 26 + (2,) * 4
+    col = PileupStatsCollector(
+        min_base_qual=20,
+        ref_names=["ref1"],
+        ref_lengths={"ref1": 30},
+    )
+    col.tally_from_record(
+        ":27",
+        [(4, 3), (0, 27)],
+        0,
+        qual,
+        "ref1",
+        True,
+        CS_REGEX,
+        "r1",
+        b"A" * 30,
+    )
+    rows = _pileup_rows(col, tmp_path)
+    assert [pos for pos, _ in rows] == list(range(2, 28))
+
+
 # --------------------------------------------------------------------------
 # smoothed_deletion (homopolymer re-attribution)
 # --------------------------------------------------------------------------
