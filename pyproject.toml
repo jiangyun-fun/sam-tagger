@@ -16,6 +16,7 @@ dependencies = [
     "polars>=1.0",
     "cyclopts>=3.0",
     "loguru>=0.7",
+    "numpy>=2.0",
     "pydantic>=2.0",
 ]
 
