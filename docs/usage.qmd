@@ -271,6 +271,20 @@ sam-tagger pileup aln.cs.bam pileup.parquet --fasta ref.fa
 sam-tagger pileup aln.cs.bam pileup.parquet --intervals targets.bed --min-base-qual 15
 ```
 
+A base passes `--min-base-qual` when its own QUAL entry reaches the threshold.
+The lookup follows the cs tag: it skips the leading soft clip, and it reads
+QUAL reverse-complemented for `0x10` records, as SAM stores it. Earlier
+releases indexed QUAL from the first stored base, so a soft clip or a reverse
+record shifted the filter onto a neighboring base.
+
+`--intervals` applies to every allele. A substitution outside the BED is not
+reported, and an insertion or a deletion is reported only when its anchor base
+(the base before it) lies inside. Earlier releases reported those rows.
+
+Counts are kept on dense arrays per reference, about 120 bytes per reference
+position, so pass `--intervals` when the references are long and the reads
+cover only part of them.
+
 # qc-summary
 
 ```text
