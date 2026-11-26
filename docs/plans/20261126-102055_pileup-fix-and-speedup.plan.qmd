@@ -5,72 +5,78 @@ author: "Yun Jiang"
 
 ## Objective
 
-1. Fix the two defects of `sam-tagger pileup` found in the investigation of 2026-11-25 and in the code review of 2026-11-26.
+1. Fix the defects of `sam-tagger pileup` found in the investigation of 2026-11-25 and in the work of 2026-11-26.
 2. Cut the run time of `sam-tagger pileup` by a port of the dense-array design that the investigation measured (report `20261125-235011_pileup-perf-investigation.report.qmd`).
 
 ## Scope
 
-1. In scope: the two fixes, the single-process port, the test suite, the usage notes.
-2. Out of scope: process parallelism over references, windowed streaming for large references, the version bump and the release, the other three commands.
+1. In scope: three defects (two found before this plan, one found in the review of the port), the single-process port, the test suite, the usage notes.
+2. Out of scope: process parallelism over references, windowed streaming for large references, the version bump and the release, the other three commands, the pipeline steps after S34_1.
 
 ## Defects
 
 ### Quality index does not point to the counted base
 
-1. `tally_from_record` starts `read_pos` at 0 (`src/sam_tagger/stats/pileup_stats.py:196`), but `qual` holds the qualities of the full read, soft clip included (`:160`).
-2. So a read with a leading soft clip of 9 bases tests the qualities of the soft clip for its first 9 aligned bases.
-3. For a reverse read (`0x10`), SAM stores QUAL reverse-complemented. The base at cs offset `rp` sits at stored index `len(qual) - 1 - lead_soft - rp`. The code reads `qual[rp]`, so it tests the quality of the mirrored base.
-4. Correct rule: reverse the stored array for a reverse read, then drop the leading soft clip of the CIGAR. Index `rp` is then the counted base.
+1. `tally_from_record` started `read_pos` at 0 (`src/sam_tagger/stats/pileup_stats.py:196` at 0.9.0), but `qual` held the qualities of the full read, soft clip included (`:160`).
+2. So a read with a leading soft clip of 9 bases tested the qualities of the base 9 positions earlier.
+3. For a reverse read (`0x10`), SAM stores QUAL reverse-complemented. The code read `qual[rp]`, so it tested the quality of the mirrored base.
+4. Correct rule: reverse the stored array for a reverse read, then drop the leading soft clip of the CIGAR. Index `rp` is the counted base.
 
 ### BED intervals filter match runs only
 
-1. The match op tests `position_in_intervals` (`:209-212`). The `*`, `+` and `-` ops do not test it (`:225-298`).
-2. So `--intervals` emits rows outside the BED for every substitution and indel of a read that overlaps an interval.
-3. Correct rule: every op tests the position. A substitution uses its own position, an indel uses its anchor.
+1. The match op tested `position_in_intervals` (`:209-212`). The `*`, `+` and `-` ops did not test it (`:225-298`).
+2. Correct rule: every op tests its position. A substitution uses its own position, an indel uses its anchor.
 
-## Planned steps
+### `ref` base of conflicting substitutions (found in the review of the port)
+
+1. Two substitution reads with different cs reference letters at one position gave a `ref` that depended on the batch order.
+2. Correct rule: the last passing substitution read in file order sets the base, as in the old code.
+
+## What was done
 
 0. Baseline: `171 passed` in the dev env (`.pixi/envs/dev/bin/python -m pytest -q`).
-1. Write the RED tests for the two defects in `tests/test_stats.py`. Confirm that they fail.
-2. Fix the quality index in the current code. Commit `fix`. Confirm GREEN.
-3. Fix the BED filter in the current code. Commit `fix`. Confirm GREEN.
-4. Add numpy to the workspace (`pixi add --pypi numpy`, `pyproject.toml`). Commit `chore`.
-5. Port the dense design (see _Design_). Freeze the fixed legacy collector as a test oracle. Add a differential test on seeded random BAMs. Commit `perf`.
-6. Validate on real data in `/bioproj/t/20261126.agent.sam-tagger-pileup-port`: subset equality against the oracle, two full runs of the `all` BAM (fixed index and legacy index) under `/usr/bin/time -v`.
-7. Update `docs/usage.qmd` and `README.md`. Commit `docs`.
-8. Code review, `ruff`, `pyright`, full test suite.
-9. Report, rewrite of this plan, audit entry, rolling docs. Commit `docs`.
+1. RED tests for the first two defects in `tests/test_stats.py`. All three failed on the old code.
+2. Fix of the quality index in the old code. Commit `f1f66dc`. GREEN.
+3. Fix of the BED filter in the old code. Commit `35f14ac`. GREEN.
+4. numpy added to the workspace. Commit `6f069f1`.
+5. Port: `src/sam_tagger/stats/pileup_dense.py`, the collector on top of it, the frozen oracle `tests/pileup_oracle.py`, the differential test `tests/test_pileup_differential.py`.
+6. Profile of the port on the subset. Two changes followed: a counter rule replaced the flush before every read with an indel, and flat indexes replaced the 2-D fancy indexing.
+7. Independent review (`python-reviewer` agent). It found the third defect and one pyright error of the port. Both were fixed and seven test gaps were closed. Commit `eb21c7c`.
+8. Validation on real data: the subset with both quality indexes, four full runs of the code before the review, then one clean run and two runs of the final code.
+9. Usage notes. Commit `c13b496`. Then this rewrite, the report, the audit entry and the rolling docs.
 
-## Design of the port
+## Design as built
 
-1. Per reference, one state holds dense arrays over the reference positions: `fwd`, `rev`, `tot` (int32, position x slot), `exists` (bool), `dp` (int32), `ref_code` (int16, -1 = unset). A slot is one allele byte. Slots grow on demand.
-2. Insertion and deletion alleles stay in a per-position dict, as in the current code.
-3. Per reference, one cached plan per `(record_pos, cs tag)`. A plan holds the parsed ops with their positions, slots and read offsets.
-4. Reads without indel ops wait in a per-plan buffer. A flush stacks their quality masks and adds the sums per position. Indel reads, a reference change and `write_results` flush first, so each guarded decrement sees the same state as in the current code.
-5. A read with indel ops walks its ops one by one with the same guarded decrements.
-6. `write_results` emits rows in the current order: references by name, positions ascending, alleles by string.
-7. `run_pileup` stops reading `query_name` and `query_sequence`, and reads the `cs` flag once.
+1. Per reference, one state holds dense arrays over the reference positions: `fwd`, `rev`, `tot` (int32, position x slot), `exists` (bool), `dp` (int32), `ref_code` (int16, -1 = unset), `snp_last` (int64). A slot is one allele byte. Slots grow from 8 on demand.
+2. Insertion and deletion alleles stay in a per-position dict, as in the old code.
+3. Per reference, one cached plan per `(record_pos, cs tag)`. The cache holds at most 256 MB and is cleared at a reference change.
+4. Reads without indel ops wait with their QUAL arrays in a per-plan buffer: at most 4,096 reads per plan and 65,536 reads in total. A flush stacks the arrays and sums the passing reads per position.
+5. A read with an indel op applies at once when `exists`, the strand count, the total and `dp` are positive at its anchor, and after a flush otherwise.
+6. The match update uses flat indexes of (position, slot), cached per plan.
+7. `write_results` emits rows in the old order: references by name, positions ascending, alleles by string.
+8. `run_pileup` stops reading `query_name` and `query_sequence`. `tally_from_record` has no `qname` and `read_seq` parameters.
 
-## Files to touch
+## Files touched
 
-1. `src/sam_tagger/stats/pileup_stats.py` (rewrite of the collector), new `src/sam_tagger/stats/pileup_dense.py`.
-2. `src/sam_tagger/lib.py` (`_CsWatch.observe`, `run_pileup`).
-3. `tests/test_stats.py`, new `tests/pileup_oracle.py`, new `tests/test_pileup_differential.py`.
-4. `pixi.toml`, `pixi.lock`, `pyproject.toml`.
-5. `docs/usage.qmd`, `README.md`, `docs/misc/*.qmd`, this plan and its report.
+1. `src/sam_tagger/stats/pileup_dense.py` (new), `src/sam_tagger/stats/pileup_stats.py` (rewritten), `src/sam_tagger/lib.py`, `src/sam_tagger/processing.py` (`REF_OPS` is public).
+2. `tests/test_stats.py`, `tests/pileup_oracle.py` (new), `tests/test_pileup_differential.py` (new).
+3. `pixi.toml`, `pixi.lock`, `pyproject.toml`.
+4. `docs/usage.qmd`, `docs/misc/*.qmd`, this plan and its report.
+5. Scratch directory `/bioproj/t/20261126.agent.sam-tagger-pileup-port`: validation scripts, outputs, logs.
 
-## Risks
+## Risks and what happened
 
-1. Exactness. The guarded decrements depend on event order. Mitigation: the differential test against the frozen legacy code, and the equality of the legacy-index variant with the S34_1 output on the full BAM.
-2. Output change for users. The quality fix changes rows near quality transitions. The BED fix removes rows outside the intervals.
-3. New dependency numpy (PyPI wheel in the pixi workspace).
-4. Memory. Dense arrays cost about 13 bytes per position and slot.
-5. Machine load. Wall-clock times vary, so the report uses CPU time.
+1. Exactness. It held: the port equals the old code on random BAMs and on the full BAMs. The differential test and the review each found one defect of the port before the commit.
+2. Output change for users. The quality fix changes more than expected: the `all` pileup keeps 80 % of its rows and 65 % of its alt reads.
+3. New dependency numpy. No problem: PyPI wheel 2.5.5 in the two pixi envs.
+4. Memory. About 120 bytes per reference position and about 4.3 GB at the peak of the full run, against 11.9 GB before.
+5. Machine load. The ratios against the old runs mix days and loads. The same-day subset ratio is 4.9.
 
 ## Verification
 
-1. The two RED tests pass after the fixes. The full suite passes (`ruff` and `pyright` clean on the changed files).
-2. The differential test gives equal frames, same row order, with and without FASTA, with and without BED.
-3. On `refs1pct.bam` (1,014,154 records), the port equals the oracle.
-4. On the full `all` BAM, the legacy-index variant equals the original S34_1 output (18,003,654 rows). The fixed-index output differs only at rows that the quality index affects.
-5. CPU time per record drops from 107.6 µs (original run) to the range of the prototype (17.9 µs).
+1. The three RED tests pass after the fixes. `223 passed`, `ruff check .` clean, `pixi run -e dev typecheck` reports 0 errors.
+2. The differential test gives equal frames in 50 cases: with and without FASTA, with and without BED, grouped and interleaved, shallow and deep, with small buffers.
+3. On `refs1pct.bam` (1,014,154 records) the port equals the old code with the fix (144,613 rows) and, with the 0.9.0 index, the 0.9.0 output (181,653 rows).
+4. On the full BAMs the port with the 0.9.0 index equals the S34_1 outputs: `all` 18,003,654 rows and `ap_both` 17,977,715 rows for the code before the review, `all` again for the final code.
+5. With the fix: `all` 14,373,589 rows, `ap_both` 14,366,165 rows.
+6. CPU time per record on the `all` BAM: 107.6 µs of wall-clock for the original run, 25.1 µs of CPU for the port alone, 17.9 µs of CPU for the prototype of 2026-11-25.

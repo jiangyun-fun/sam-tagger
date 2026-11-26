@@ -64,6 +64,21 @@ author: "Yun Jiang"
     because GNU time measured py-spy and not the worker.
 23. M: the 7.7 GB maximum RSS of the prototype covers the run through the
     Parquet write; the 9.6 GB of `time -v` includes the equality check.
+24. H: the pileup quality fix changes the S34_1 output — on the `all` BAM
+    14,373,589 rows against 18,003,654 and 14,511,660 alt reads against
+    22,192,079; the variant calling after S34_1 was not run.
+25. M: the full-data ratios mix days and loads (S34_1 rule of 2026-11-18,
+    investigation run A at load 13 to 26, the clean run at load 7 to 10);
+    the same-day subset ratio is 4.9.
+26. M: the port with the 0.9.0 quality index equals the S34_1 output on both
+    BAMs for the code before the review fixes; the final code repeats it on
+    the `all` BAM only.
+27. M: the reverse-record part of the quality fix rests on the SAM rule and
+    on random BAMs; the two S34_1 BAMs hold no `0x10` record.
+28. M: the port is slower than the prototype of 2026-11-25 — 2,500 s against
+    1,783.7 s of CPU on the `all` BAM; the record loop was not trimmed.
+29. L: an indel before the first aligned base keeps its row at position 0,
+    the behavior of the old code.
 
 ## limitation
 
@@ -93,3 +108,9 @@ author: "Yun Jiang"
     18.0 M rows with 1 % of the reads).
 13. L: The figure of 0.5 to 1.7 minutes for a perfect single-threaded
     reader scales the decode floor of the subset; no such reader was built.
+14. M: This task made no release: no version bump, no tag, no push.
+15. M: Process parallelism over references and streaming output are not
+    part of the port; their gains are estimates.
+16. M: The record loop of the port was profiled on the subset only; the cost
+    shares on the full BAM are estimates.
+17. M: BED mode ran on random BAMs only; the pipeline passes no BED.

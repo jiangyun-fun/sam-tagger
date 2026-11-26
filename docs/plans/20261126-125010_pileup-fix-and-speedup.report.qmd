@@ -1,0 +1,1130 @@
+---
+title: "Pileup: quality-index fix, BED fix and dense-array port"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧮</text></svg>">
+---
+
+## feature
+
+<!-- new capability this task added -->
+
+### pileup counts alleles on dense arrays per reference
+
+```
+level: high
+```
+
+#### reason
+
+The port gives the same rows as the frozen per-base code on the full BAMs, on the 1 M-record subset and on random BAMs. One run alone on the full `all` BAM gave the timing.
+
+#### description
+
+```
+type: [text, table]
+```
+
+1. `PileupStatsCollector` keeps the counts of one reference in numpy arrays: one row per position, one column per single-base allele.
+2. One cached plan per `(record_pos, cs tag)` and per reference holds the parsed cs ops.
+3. Reads that share a plan and carry no indel wait in a batch. A flush adds their quality sums per position.
+4. A read with an insertion or a deletion applies at once when the counters at its anchor are positive. It applies after a flush otherwise.
+5. The last passing substitution read in file order sets the `ref` base, as in the per-base code.
+
+| Run of the `all` BAM (99,756,729 records) | Code | Wall-clock | CPU time | Max RSS | Rows |
+|---|---|---|---|---|---|
+| S34_1 rule, 2026-11-18 | 0.8.0 | 10,735 s | not recorded | not recorded | 18,003,654 |
+| Investigation run A, 2026-11-25, load 13 to 26 | 0.9.0 | 13,186 s | 12,540.5 s | 11,946 MB | 18,003,654 |
+| Port with the 0.9.0 quality index, 4 runs at one time | port | 2,802 s | 2,662.4 s | 5,280 MB | 18,003,654 |
+| Port with the fixed index, alone, load 7 to 10 | port | 2,596 s | 2,500.0 s | 4,257 MB | 14,373,589 |
+
+#### before
+
+A pileup of the S34_1 `all` BAM took 2 h 59 min and 11.9 GB of memory. The per-base Python loop held 88 % of the time.
+
+#### after
+
+The same command takes 43 min and 4.3 GB on a loaded machine. With the 0.9.0 quality index it writes the same rows as before.
+
+#### evidence
+
+```
+level: high
+type: [text, table]
+```
+
+::: {.callout-note collapse="true"}
+
+Clean run of the final code, `logs/all.final.fixed.log` in `/bioproj/t/20261126.agent.sam-tagger-pileup-port`:
+
+```text
+	User time (seconds): 2489.20
+	System time (seconds): 10.84
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 43:16.29
+	Maximum resident set size (kbytes): 4256572
+	Exit status: 0
+```
+
+Load average at the end of the run: `7.01 7.86 8.89`. Rows of `out/all.final.fixed.parquet`: 14,373,589.
+
+Original rule log, `S34_1__variant_call__sam_tagger/*.all.default.log`:
+
+```text
+=== rulename=S34_1__variant_call__sam_tagger start=2026-11-18T08:04:42+0000
+=== rulename=S34_1__variant_call__sam_tagger end=2026-11-18T11:03:37+0000 rc=0
+```
+
+The four runs at one time (code before the review fixes), `logs/*.log`:
+
+```text
+all.fixed:    User time 2637.62  System time 24.82  Elapsed 46:42.81  Maximum resident 4184092
+all.legacy:   User time 2638.45  System time 26.63  Elapsed 46:42.43  Maximum resident 5280140
+ap_both.fixed:   User time 2605.19  System time 25.23  Elapsed 46:08.91  Maximum resident 4171396
+ap_both.legacy:  User time 2585.70  System time 27.00  Elapsed 45:45.76  Maximum resident 5268080
+```
+
+`out/all.legacy.json` and `out/ap_both.legacy.json` (the port with the 0.9.0 quality index against the S34_1 output):
+
+```json
+{"rows": 18003654, "rows_reference": 18003654, "equal_to_reference": true, "first_difference": null}
+{"rows": 17977715, "rows_reference": 17977715, "equal_to_reference": true, "first_difference": null}
+```
+
+Final code on the subset `refs1pct.bam` (1,014,154 records), `out/refs1pct.final.*.json`:
+
+```text
+final.legacy {'cpu_s': 22.9, 'wall_s': 23.5, 'rows': 181653, 'equal_to_reference': True}
+final.fixed {'cpu_s': 23.3, 'wall_s': 24.0, 'rows': 144613, 'equal_to_reference': True}
+```
+
+:::
+
+## fix
+
+<!-- defect in the project or its artifacts, corrected this task -->
+
+### pileup reads the quality of the counted base
+
+```
+level: high
+```
+
+#### reason
+
+Three tests failed before the fix and pass after it. The index rule holds on 5,000 substitution bases of the real BAM. The fixed code equals the frozen per-base code with the same fix on the subset.
+
+#### description
+
+```
+type: [text, table]
+```
+
+1. `tally_from_record` started `read_pos` at 0 (`src/sam_tagger/stats/pileup_stats.py:196` at 0.9.0), but QUAL holds the soft-clipped bases too.
+2. So the filter tested the soft-clipped bases for the first aligned bases. For a `9S204M` read it tested the base 9 positions earlier for every other base.
+3. SAM stores QUAL reverse-complemented for a `0x10` record. The filter tested the mirrored base of such a read.
+4. The lookup now reverses QUAL for a reverse record and skips the leading soft clip (`src/sam_tagger/stats/pileup_dense.py`, `aligned_qualities`).
+
+| `all` BAM, fixed index against 0.9.0 | 0.9.0 pileup | Fixed pileup |
+|---|---|---|
+| Rows | 18,003,654 | 14,373,589 |
+| Reads on a non-reference allele | 22,192,079 | 14,511,660 |
+| Mean `dp` per position | 2,182.46 | 2,182.06 |
+
+5. The 3,649,942 rows that only the 0.9.0 pileup holds are 3,646,591 substitutions, 2,617 deletions and 1,134 insertions. Their median `ad` is 1.
+6. Of 9,266,702 positions, `dp` is lower at 3,395,780, higher at 3,453,717 and unchanged at 2,417,205. The median change is 0.18 % of `dp`, the 90th percentile 1.27 %.
+7. `ap_both.bam` behaves the same: 14,366,165 rows against 17,977,715, and 14,498,725 alt reads against 22,107,675.
+
+#### before
+
+The quality filter did not look at the base it counted. Low-quality error bases passed when a neighboring base had a good quality.
+
+#### after
+
+A base passes `--min-base-qual` when its own QUAL entry reaches the threshold. The S34_1 `all` pileup keeps about 80 % of its rows and 65 % of its alt reads.
+
+#### evidence
+
+```
+level: high
+type: [text, statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+The three new tests before any fix (`.pixi/envs/dev/bin/python -m pytest -q tests/test_stats.py -k "quality_index or intervals_skip"`):
+
+```text
+E       assert [4, 5, 6, 7, 8, 9, ...] == [1, 2, 3, 4, 5, 6, ...]
+E         At index 0 diff: 4 != 1
+E       assert [1, 2, 3, 4, 5, 6, ...] == [2, 3, 4, 5, 6, 7, ...]
+E         At index 0 diff: 1 != 2
+3 failed, 34 deselected in 0.61s
+```
+
+After the fix: `1 failed, 173 passed in 2.22s` (the BED test was still open).
+
+Index rule on the real BAM (`annotated.bam`, substitution bases of forward reads, `seq[lead_soft + cs_offset] == alt`):
+
+```text
+substitution bases per strand [formula holds, fails]: {'fwd': [3000, 0], 'rev': [0, 0]}
+records per strand in the first 3M: {'fwd': 3000000, 'rev': 0, 'other': 0}
+```
+
+`samtools view -c` on `annotated.bam`: `-f 16` gives `0`, `-F 16` gives `99756729`.
+
+`out/all.diff.json` (`scripts/diff_outputs.py`, fixed against 0.9.0):
+
+```json
+{"rows_new": 14373589, "rows_old": 18003654, "rows_only_old": 3649942, "rows_only_new": 19877,
+ "alt_reads_old": 22192079, "alt_reads_new": 14511660,
+ "positions": 9266702, "dp_lower": 3395780, "dp_higher": 3453717, "dp_unchanged": 2417205,
+ "mean_dp_old": 2182.46, "mean_dp_new": 2182.06,
+ "relative_dp_change": {"median": 0.00178, "p90": 0.01269, "max": 11.6667}}
+```
+
+:::
+
+### BED intervals apply to substitutions and indels
+
+```
+level: high
+```
+
+#### reason
+
+A test failed before the fix with the three extra rows and passes after it. The differential test covers BED files that cut through every op type.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The per-base code tested `position_in_intervals` for match runs only (`pileup_stats.py:209-212` at 0.9.0). The `*`, `+` and `-` ops had no test (`:225-298`).
+2. `--intervals` reported a substitution outside the BED and an indel whose anchor lies outside.
+3. Every op now tests its position. An indel tests its anchor.
+
+#### before
+
+A BED over the first 10 bases of a 30-base reference also reported a `+AC` row at position 12, a `-AC` row at position 15 and a `C` row at position 20.
+
+#### after
+
+The same BED reports positions 1 to 10 only.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`test_pileup_intervals_skip_substitution_and_indel_outside` before the fix:
+
+```text
+E       AssertionError: assert [(1, '.'), (2...(6, '.'), ...] == [(1, '.'), (2...(6, '.'), ...]
+E         Left contains 3 more items, first extra item: (12, '+AC')
+```
+
+After the fix: `174 passed in 2.88s`.
+
+:::
+
+## assumption
+
+<!-- unverified premise the work depends on -->
+
+### the frozen oracle is the 0.9.0 algorithm with the two fixes
+
+```
+level: high
+```
+
+#### reason
+
+`tests/pileup_oracle.py` differs from the committed file in the docstring, two imports, the class name, one line wrap and the appended record loop.
+
+#### description
+
+```
+type: [text]
+```
+
+1. `tests/pileup_oracle.py` is `git show 35f14ac:src/sam_tagger/stats/pileup_stats.py`, with the class renamed to `PileupOracle`.
+2. `run_reference_pileup` in the same file repeats the `run_pileup` record loop of that commit.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`diff <(git show 35f14ac:src/sam_tagger/stats/pileup_stats.py) tests/pileup_oracle.py` reports 68 changed lines: lines 1 to 6 (docstring), the imports of `parse_bed` and `CS_REGEX`, line 98 (`class PileupOracle:`), the line wrap of a `logger.warning` call, and lines 363 to 410 (`run_reference_pileup`).
+
+:::
+
+### a positive counter at the anchor makes waiting reads irrelevant
+
+```
+level: high
+```
+
+#### reason
+
+The rule follows from the three guards of the per-base code. The deep-coverage test and the fuzz runs hold the port against the oracle with both paths in use.
+
+#### description
+
+```
+type: [text]
+```
+
+1. A retro-fix decrement lowers the strand count, the total and `dp` of the anchor, each only when it is above 0.
+2. Waiting batches hold increments only. They can change a guard only when the counter is 0.
+3. So a read with an indel applies at once when `exists`, the strand count, the total and `dp` are positive at the anchor (`_pending_cannot_matter`). The collector flushes first otherwise.
+
+#### evidence
+
+```
+level: high
+type: [statistic, text]
+```
+
+::: {.callout-note collapse="true"}
+
+Deep-coverage case (1,500 reads on two 60 bp references, 30 % error rate), one run:
+
+```text
+indel ops in the deep case: applied without a flush 1779 | after a flush 4
+```
+
+Fuzz of the reviewer (400 random BAMs with mutated cs tags, batch and plan-cache limits varied), `fuzz.py 0 400`:
+
+```text
+before the ref-order fix: tally: {'SAME': 394, 'DIFF': 6, 'RAISED': 0}
+after the fixes:          tally: {'SAME': 400, 'DIFF': 0, 'RAISED': 0}
+```
+
+:::
+
+### CPU time stands in for the run time
+
+```
+level: medium
+```
+
+#### reason
+
+The machine carried a load average of 7 to 12 from other jobs during all runs. CPU time is less sensitive to that load than wall-clock, but the CPU frequency and the SMT siblings still move it.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The report gives CPU time and wall-clock of each run.
+2. A ratio of two runs at one time is more reliable than a ratio against the 2026-11-18 run.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Load averages read during the work: `7.29 7.76 8.41`, `12.27 9.45 8.85`, `7.01 7.86 8.89`. `ps` showed a `qemu-system-x86` process of another user at 46.7 % CPU over 48 days.
+
+:::
+
+## conclusion
+
+<!-- interpreted claim: what we now know -->
+
+### the port keeps the 0.9.0 output on the full data
+
+```
+level: high
+```
+
+#### reason
+
+With the 0.9.0 quality index switched on, the port equals the S34_1 output on both BAMs, row for row and in the same order. The final code repeats the result on the `all` BAM.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. `annotated.bam`: 18,003,654 rows, equal to `*.all.pileup.parquet`.
+2. `ap_both.bam`: 17,977,715 rows, equal to `*.ap_both.pileup.parquet`.
+3. The review fixes did not change the fixed-index output of the `all` BAM: the two files are identical, 14,373,589 rows.
+4. The final code repeats the equality on `annotated.bam`: 18,003,654 rows, equal.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`out/all.legacy.json` (code before the review fixes):
+
+```json
+{"variant": "legacy-index", "cpu_s": 2659.35, "rows": 18003654, "rows_reference": 18003654,
+ "equal_to_reference": true, "first_difference": null}
+```
+
+`out/ap_both.legacy.json`: `"rows": 17977715, "equal_to_reference": true`.
+
+Final code, `all` BAM, 0.9.0 quality index against the S34_1 output, `out/all.final.legacy.json`:
+
+```json
+{"variant": "legacy-index", "cpu_s": 2574.45, "rows": 18003654, "rows_reference": 18003654,
+ "equal_to_reference": true, "first_difference": null}
+```
+
+Final code, two runs at one time: `all.final.legacy` `Elapsed 44:45.15`, `all` with the 0.9.0 index and the comparison; `ap_both.final.fixed` `Elapsed 44:15.48`, `Maximum resident set size (kbytes): 4262496`.
+
+`polars.testing.assert_frame_equal(out/all.final.fixed.parquet, out/all.fixed.parquet, check_exact=True)`: `all: final code vs 11:10 code (fixed index): identical, 14373589 rows`.
+
+:::
+
+### the port needs about a fifth of the 0.9.0 CPU time and a quarter of its wall-clock
+
+```
+level: medium
+```
+
+#### reason
+
+The subset ratio of two runs at one time is 4.9. The full-data ratios compare runs of different days and loads.
+
+#### description
+
+```
+type: [table]
+```
+
+| Comparison | 0.9.0 code | Port | Ratio |
+|---|---|---|---|
+| Subset, same day, CPU time | 114.5 s | 23.3 s | 4.9 |
+| Full `all` BAM, CPU time, investigation run A against the clean run | 12,540.5 s | 2,500.0 s | 5.0 |
+| Full `all` BAM, wall-clock, S34_1 rule against the clean run | 10,735 s | 2,596 s | 4.1 |
+| Full `all` BAM, CPU per record, prototype of 2026-11-25 against the port | 1,783.7 s | 2,500.0 s | 0.71 |
+
+1. The 0.9.0 figure of the subset is the frozen per-base code with the fixes, run at one time with another process of this work.
+2. The prototype of 2026-11-25 ran at load 7 to 9. It read fewer attributes per record and applied an indel read with contiguous slice adds.
+
+#### evidence
+
+```
+level: medium
+type: [table, text]
+```
+
+::: {.callout-note collapse="true"}
+
+`out/refs1pct.oracle.json`: `"cpu_s": 114.54684021199999, "rows": 144613`. `out/refs1pct.final.fixed.json`: `"cpu_s": 23.3`.
+
+Investigation report, full prototype run on `annotated.bam`: `Elapsed ... 30:46.00`, `User time (seconds): 1768.85`.
+
+:::
+
+### the quality fix removes a third of the alt reads of S34_1
+
+```
+level: high
+```
+
+#### reason
+
+The two full outputs of the `all` BAM differ in row count and in alt reads as stated. The cause is the index rule, shown by the tests and by the real-data check.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The 0.9.0 filter tested the quality of the base 9 positions earlier for a `9S204M` read. Most bases have a quality of 20 or more, so most error bases passed.
+2. The fixed filter tests the error base itself. Alt reads fall from 22,192,079 to 14,511,660 on `annotated.bam`, and from 22,107,675 to 14,498,725 on `ap_both.bam`.
+3. `dp` per position moves by a median of 0.18 %. The mean `dp` stays at 2,182.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+`out/all.diff.json`: `"alt_reads_old": 22192079, "alt_reads_new": 14511660`, `"relative_dp_change": {"median": 0.00178, "p90": 0.01269}`.
+
+:::
+
+### the reverse-record defect does not reach the S34_1 data
+
+```
+level: high
+```
+
+#### reason
+
+`samtools view -c -f 16` returns 0 records for `annotated.bam`.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. `annotated.bam` holds 99,756,729 records, all forward.
+2. So the output of the S34_1 data changes through the soft-clip part of the fix only.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+$ samtools view -c -f 16 GO11-poolA-2_1.GO00011-poolA-Reference.annotated.bam
+0
+$ samtools view -c -F 16 GO11-poolA-2_1.GO00011-poolA-Reference.annotated.bam
+99756729
+```
+
+:::
+
+## observation
+
+<!-- what was noticed in data or behavior, without interpretation -->
+
+### the record loop of the port costs more than the one of the prototype
+
+```
+level: medium
+```
+
+#### reason
+
+The CPU time per record of the two full runs differs by 7.2 µs. The share of each cause is an estimate from the cProfile run on the subset, not a measurement on the full BAM.
+
+#### description
+
+```
+type: [table]
+```
+
+| Item | Prototype of 2026-11-25 | Port |
+|---|---|---|
+| CPU time per record, full `all` BAM | 17.9 µs | 25.1 µs |
+| Reads with an indel on the subset | 4 % | 4 % |
+| Reads with an indel on the full BAM | 14.5 % | 14.5 % |
+| Match update | one-hot block, contiguous slice adds | flat fancy indexing |
+| cs warning and tag check per record | none | `_CsWatch.observe` and `has_tag` |
+
+1. An indel read takes the single-read path. That path costs about 25 µs against about 17 µs in the prototype.
+2. The port keeps the `_CsWatch` warning and the `has_tag` check of the product. The prototype had neither.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Micro-benchmark of the match update on arrays of 204 positions and 8 slots, load about 8 (`np` 2.5.5):
+
+```text
+a current fancy 2-D (no ref_code block)   18.10 us
+flat 1-D fancy (index built per call)     9.13 us
+block: one-hot x total, slice adds       12.62 us
+fancy single read (mask)                 21.01 us
+block single read (mask)                 13.00 us
+```
+
+:::
+
+### the first port flushed before every read with an indel
+
+```
+level: high
+```
+
+#### reason
+
+cProfile on the subset counted the flush calls and the batch applications.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. The first port flushed all waiting batches before each read with an indel.
+2. On the subset it flushed 41,244 times and applied 194,385 batches and single reads for 1,014,154 records. A batch held about 6 reads.
+3. The port took 33.3 s of CPU on the subset. After the counter rule it takes 23.3 s.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+41244    0.721   0.000   13.086   0.000 /bioproj/tools/github/sam-tagger/src/sam_tagger/stats/pileup_stats.py:147(_flush)
+194385    0.971   0.000   12.681   0.000 /bioproj/tools/github/sam-tagger/src/sam_tagger/stats/pileup_dense.py:239(apply)
+```
+
+:::
+
+### the independent review found one exactness hole in the port
+
+```
+level: high
+```
+
+#### reason
+
+The reviewer reproduced the hole with two reads and confirmed the fix by a second fuzz run.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The review ran 164 targeted cases, 800 random BAMs (400 with cs tags mutated against the CIGAR) and 300 runs with small batches.
+2. Counts, `dp` and row order were identical in every run.
+3. Two substitution reads with different cs reference letters at one position gave a different `ref`: the per-base code lets the last passing read in file order win, and the batches applied in plan order.
+4. The review also found one new pyright error in the uncommitted file. The CI step `pixi run -e dev typecheck` would have failed.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Reviewer summary, `[MEDIUM] ref differs when two SNP ops carry different reference chars at one position — CONFIRMED. Input: reads *Tg, *Ag, *Tg at POS 6. Oracle gives ref=T, dense gives ref=A. Counts are equal.`
+
+Reviewer summary, `[HIGH] New pyright error fails the CI typecheck step — CONFIRMED. pyright reports "Object of type None is not subscriptable" on flat[hit].`
+
+:::
+
+### an indel before the first aligned base gives a row at position 0
+
+```
+level: high
+```
+
+#### reason
+
+The per-base code and the port give the same row, and a test pins it.
+
+#### description
+
+```
+type: [text]
+```
+
+1. A cs tag that starts with an insertion at POS 1 has no anchor base.
+2. The per-base code records the insertion at position `-1` and prints position 0. The port keeps that row.
+3. This task did not change the behavior.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`test_pileup_indel_before_the_first_base` asserts `dense.filter(pl.col("alt") == "+AC")["pos"].to_list() == [0]` and equality with the oracle. `223 passed`.
+
+:::
+
+### the test suite grew from 171 to 223 tests
+
+```
+level: high
+```
+
+#### reason
+
+The counts are the pytest summaries before and after the work.
+
+#### description
+
+```
+type: [statistic, text]
+```
+
+1. Three tests cover the two fixes at the collector level.
+2. 49 tests hold the port against the frozen per-base code: 32 random cases, 4 with small buffers, 8 on deep coverage, 4 on conflicting substitutions and 1 on an indel before the first base.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+171 passed in 2.46s      (start of the work)
+223 passed in 9.99s      (after the port)
+0 errors, 0 warnings, 0 informations      (pixi run -e dev typecheck)
+All checks passed!                        (ruff check .)
+```
+
+:::
+
+## process
+
+<!-- audit of a significant action or decision between plan and report -->
+
+### chose a flush before every indel read
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first port flushed all waiting batches before each read with an indel.
+2. On real data every 25th read has an indel, so a batch held about 6 reads and the flush cost dominated.
+3. The counter rule of `_pending_cannot_matter` replaced the flush. The better action was to compute the batch size from the indel rate before the first design.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+Subset CPU time: 33.3 s with the flush rule, 24.2 s with the counter rule, 21.4 s with flat indexes, 23.3 s with the final code.
+
+:::
+
+### padded a short QUAL with zero bytes
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The port pads a QUAL that is shorter than the cs tag with zero bytes.
+2. With `--min-base-qual 0` a zero passes, so bases without a quality were counted.
+3. The differential test found it (8 of 41 cases failed). The flush now masks the padded bases.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+E       AssertionError: DataFrames are different (height (row count) mismatch)
+E       [left]: 268
+E       [right]: 267
+8 failed, 203 passed in 4.72s
+```
+
+:::
+
+### wrote the positions 0-based in the first draft of the output
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The first `frame()` wrote `pos` without the change to 1-based.
+2. The existing integration tests found it at once (15 failures).
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+E       assert [(0, '.'), (1...(5, '.'), ...] == [(1, '.'), (2...(6, '.'), ...]
+E         At index 0 diff: (0, '.') != (1, '.')
+15 failed, 159 passed in 2.62s
+```
+
+:::
+
+### computed a dp difference with unsigned integers
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. A first analysis of the fixed against the 0.9.0 pileup subtracted `UInt64` columns.
+2. Negative changes wrapped around, and the analysis stated that no `dp` fell.
+3. The corrected analysis casts to `Int64` first. The numbers in this report come from it.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+polars.exceptions.InvalidOperationError: conversion from `u64` to `i64` failed in column 'dp' for 56014 out of 144397 values
+```
+
+:::
+
+### did not run the typecheck after the last change
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The last edit before the review added the flat indexes. I did not run the typecheck after it.
+2. The reviewer found the new pyright error. The fix narrows the index through a local variable.
+3. An interim message of this session also reported "2 pre-existing errors" from the bare pyright binary. The CI task reports 0 errors. The better action was to run `pixi run -e dev typecheck` before each report.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+/bioproj/tools/github/sam-tagger/src/sam_tagger/stats/pileup_dense.py:301:37 - error: Object of type "None" is not subscriptable (reportOptionalSubscript)
+```
+
+After the fix, `pixi run -e dev typecheck`: `0 errors, 0 warnings, 0 informations`.
+
+:::
+
+### started the full runs before the review
+
+```
+status: wrong
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. I started four full-BAM runs before the code review.
+2. The review led to changes of the port, so the runs had to be repeated for the final code.
+3. The better action was the review first and one full run after it.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+Four runs of 46 min each (code before the review), then one clean run of 43 min and two runs of the final code.
+
+:::
+
+### fixed each defect test-first and committed it on its own
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. Each of the two fixes has its tests first. They failed on the old code and passed after the fix.
+2. Each fix is one commit (`f1f66dc`, `35f14ac`). The fixes were on the old code before the rewrite started.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+f1f66dc fix: pileup reads base qualities at the wrong index
+35f14ac fix: pileup records substitutions and indels outside BED intervals
+```
+
+:::
+
+### froze the old code as the oracle before the rewrite
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. The per-base collector with the fixes became `tests/pileup_oracle.py` before the rewrite.
+2. The differential test on random BAMs found the QUAL padding defect and holds every later change.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+`tests/test_pileup_differential.py`: 50 tests. The fuzz of the reviewer: 400 of 400 identical after the fixes.
+
+:::
+
+### asked for an independent review before the commit
+
+```
+status: right
+```
+
+#### description
+
+```
+type: [text]
+```
+
+1. A `python-reviewer` agent reviewed the uncommitted port against the oracle.
+2. It found the `ref` order hole and the pyright error. Both were fixed before the commit `eb21c7c`.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Review verdict: `Counts, dp and row order are exact. One ref-column hole exists on inconsistent cs tags.`
+
+:::
+
+## change
+
+<!-- file, git, pixi, and env mutations made -->
+
+### files, packages and commits of this task
+
+```
+level: high
+```
+
+#### reason
+
+The list is the git log and the status of the working tree.
+
+#### description
+
+```
+type: [table, text]
+```
+
+| Verb | Path | Content |
+|---|---|---|
+| created | `src/sam_tagger/stats/pileup_dense.py` | dense counts, plans, `aligned_qualities` |
+| rewritten | `src/sam_tagger/stats/pileup_stats.py` | collector on the dense counts, two fixes kept |
+| updated | `src/sam_tagger/lib.py` | `run_pileup` record loop |
+| updated | `src/sam_tagger/processing.py` | `REF_OPS` is public |
+| created | `tests/pileup_oracle.py` | frozen per-base code and its record loop |
+| created | `tests/test_pileup_differential.py` | 50 tests against the oracle |
+| updated | `tests/test_stats.py` | 3 tests for the fixes, call sites |
+| updated | `pixi.toml`, `pixi.lock`, `pyproject.toml` | numpy |
+| updated | `docs/usage.qmd` | pileup notes |
+| created | `docs/plans/20261126-102055_pileup-fix-and-speedup.plan.qmd` | plan |
+| created | this report | report |
+
+1. Packages: `numpy 2.5.5` to the pixi envs `default` and `dev` of `/bioproj/tools/github/sam-tagger`.
+2. Environments: none new. The scratch directory `/bioproj/t/20261126.agent.sam-tagger-pileup-port` has no environment.
+3. Git, sam-tagger, branch `main`, not pushed: `25b5eb6` (plan), `f1f66dc` (quality index), `35f14ac` (BED), `6f069f1` (numpy), `eb21c7c` (port), `c13b496` (usage notes), then the report commit.
+4. Git, scratch repository: scripts, logs and JSON results of the validation runs.
+5. Plan: `docs/plans/20261126-102055_pileup-fix-and-speedup.plan.qmd`. The report `20261125-235011_pileup-perf-investigation.report.qmd` holds the measurements of the 0.9.0 code.
+
+#### evidence
+
+```
+level: high
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+```text
+25b5eb6 docs: plan for the pileup fix and speedup
+f1f66dc fix: pileup reads base qualities at the wrong index
+35f14ac fix: pileup records substitutions and indels outside BED intervals
+6f069f1 chore: add numpy dependency
+eb21c7c perf: count pileup alleles on dense arrays per reference
+c13b496 docs: usage notes for the pileup quality index, BED scope and memory
+```
+
+:::
+
+## other
+
+<!-- content that fits no category -->
+
+### ranked follow-ups of the pileup work
+
+```
+level: medium
+proposed-structure: a `follow-up` category with a priority key, the report form of the rolling `next` list
+```
+
+#### reason
+
+The items follow from the measurements of this task. Their gains are estimates.
+
+#### description
+
+```
+type: [text]
+```
+
+1. H: regenerate the S34_1 pileups and compare the variant calls before and after the quality fix on one sample.
+2. M: release the two fixes and the port as the next version.
+3. M: trim the record loop of the port by an estimated 10 to 15 %: read the flag once, keep the reference names in a list, and add a fast path for reads whose bases all pass.
+4. M: add process parallelism over references (estimate of the investigation: divide by 5 to 6 on 6 cores).
+5. M: write the rows per reference while the run proceeds, to cut the 4.3 GB peak.
+
+#### evidence
+
+```
+level: medium
+type: [text]
+```
+
+::: {.callout-note collapse="true"}
+
+Investigation report `20261125-235011_pileup-perf-investigation.report.qmd`, category `other`: ranked proposals 1 to 5.
+
+:::
+
+### the quality fix changes the input of the variant calling downstream of S34_1
+
+```
+level: high
+proposed-structure: a `caveat` category inside reports, the report form of the per-turn console block
+```
+
+#### reason
+
+The two full outputs of the `all` BAM differ as stated. The downstream consumer was not run.
+
+#### description
+
+```
+type: [text]
+```
+
+1. The S34_1 rule is named `variant_call__sam_tagger`. Its pileup input loses 3,649,942 rows and 7,680,419 alt reads on the `all` BAM, and 3,630,990 rows and 7,608,950 alt reads on the `ap_both` BAM.
+2. This task did not run the steps after S34_1.
+
+#### evidence
+
+```
+level: high
+type: [statistic]
+```
+
+::: {.callout-note collapse="true"}
+
+`out/all.diff.json`: `"rows_only_old": 3649942`, `"alt_reads_old": 22192079`, `"alt_reads_new": 14511660`.
+
+`out/ap_both.diff.json`: `"rows_only_old": 3630990`, `"alt_reads_old": 22107675`, `"alt_reads_new": 14498725`.
+
+:::

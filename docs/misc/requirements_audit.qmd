@@ -1128,3 +1128,54 @@ Packages/Environments: scratch pixi env `default` — python 3.13.18, pysam
 Git: docs commits `e6bc1db` and the final docs commit on main; no source
 changes; not pushed. Cron: `409a7590` fired at 19:17 and auto-deleted;
 follow-up jobs `2b47854d`, `d32a3ef7`, `6c59f947` created and deleted.
+
+## fix the pileup defects and port the pileup onto dense arrays
+
+```
+level: high
+date: 2026-11-26
+```
+
+### description
+
+Follow-up of the pileup investigation: fix the defects of `sam-tagger pileup`
+in the package, implement the dense-array speedup with tests, and leave the
+release to a separate task.
+
+### result
+
+1. Fixed: the pileup quality filter reads the QUAL entry of the counted base
+   (leading soft clip, `0x10` records) — commit `f1f66dc`.
+2. Fixed: `--intervals` applies to substitutions and to indels at their
+   anchor — commit `35f14ac`.
+3. Implemented: `PileupStatsCollector` on dense numpy arrays with cached cs
+   plans and batched reads — commit `eb21c7c`.
+4. Implemented: the frozen per-base code `tests/pileup_oracle.py` and 50
+   differential tests; the suite grew from 171 to 223 tests.
+5. Fixed: `ref` base of conflicting substitutions and one pyright error of
+   the port, both found by the code review before the commit.
+6. Verified: the port with the 0.9.0 quality index equals the S34_1 outputs
+   (18,003,654 and 17,977,715 rows).
+7. Verified: the `all` BAM alone takes 43 m 16 s, 2,500 s of CPU and 4.26 GB,
+   against 2 h 59 min and 11.9 GB for the S34_1 run.
+8. Found: the quality fix changes the S34_1 `all` pileup to 14,373,589 rows
+   and 14,511,660 alt reads (0.9.0: 18,003,654 and 22,192,079).
+9. Created: usage notes (`c13b496`), the report of 20261126-125010 and the
+   plan rewritten to the real course.
+
+### change
+
+Files: created `src/sam_tagger/stats/pileup_dense.py`,
+`tests/pileup_oracle.py`, `tests/test_pileup_differential.py`,
+`docs/plans/20261126-102055_pileup-fix-and-speedup.plan.qmd` and
+`docs/plans/20261126-125010_pileup-fix-and-speedup.report.qmd` (rendered,
+HTML not committed); rewrote `src/sam_tagger/stats/pileup_stats.py`; updated
+`src/sam_tagger/lib.py`, `src/sam_tagger/processing.py`, `tests/test_stats.py`,
+`pixi.toml`, `pixi.lock`, `pyproject.toml`, `docs/usage.qmd`,
+`docs/misc/next_and_recommendation.qmd`, `docs/misc/caveat_and_limitation.qmd`.
+Packages: `numpy 2.5.5` → pixi envs `default` and `dev` of
+`/bioproj/tools/github/sam-tagger`. Environments: none new. Scratch directory
+with its own git repository and no environment:
+`/bioproj/t/20261126.agent.sam-tagger-pileup-port`. Git: commits `25b5eb6`,
+`f1f66dc`, `35f14ac`, `6f069f1`, `eb21c7c`, `c13b496` and the docs commit on
+`main`; not pushed.
