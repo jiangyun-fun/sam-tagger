@@ -236,8 +236,11 @@ class PileupStatsCollector:
             elif op_type == "*":
                 if len(val) >= 2:
                     alt_base_char = val[1].upper()
-                    if passes_quality_filter(read_pos):
-                        abs_ref_pos = ref_idx - 1
+                    abs_ref_pos = ref_idx - 1
+                    in_scope = chr_intervals is None or position_in_intervals(
+                        abs_ref_pos, chr_intervals
+                    )
+                    if in_scope and passes_quality_filter(read_pos):
                         pos_stats = ref_stats.get(abs_ref_pos)
                         if pos_stats is None:
                             pos_stats = _PositionPileup()
@@ -253,7 +256,10 @@ class PileupStatsCollector:
                 anchor_pos_1based = ref_idx - 1
                 abs_ref_pos = anchor_pos_1based - 1
 
-                if passes_quality_filter(read_pos):
+                in_scope = chr_intervals is None or position_in_intervals(
+                    abs_ref_pos, chr_intervals
+                )
+                if in_scope and passes_quality_filter(read_pos):
                     pos_stats = ref_stats.get(abs_ref_pos)
                     if pos_stats is None:
                         pos_stats = _PositionPileup()
@@ -285,7 +291,10 @@ class PileupStatsCollector:
                 anchor_pos_1based = ref_idx - 1
                 abs_ref_pos = anchor_pos_1based - 1
 
-                if passes_quality_filter(read_pos):
+                in_scope = chr_intervals is None or position_in_intervals(
+                    abs_ref_pos, chr_intervals
+                )
+                if in_scope and passes_quality_filter(read_pos):
                     pos_stats = ref_stats.get(abs_ref_pos)
                     if pos_stats is None:
                         pos_stats = _PositionPileup()

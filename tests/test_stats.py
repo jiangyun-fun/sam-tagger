@@ -599,6 +599,32 @@ def test_pileup_quality_index_of_reverse_read(tmp_path: Path) -> None:
     assert [pos for pos, _ in rows] == list(range(2, 28))
 
 
+def test_pileup_intervals_skip_substitution_and_indel_outside(tmp_path: Path) -> None:
+    # BED [0,10): a substitution and an indel outside the interval are not recorded.
+    col = PileupStatsCollector(
+        min_base_qual=0,
+        ref_names=["ref1"],
+        ref_lengths={"ref1": 30},
+        intervals={"ref1": [Interval(0, 10)]},
+    )
+    for cs in (":5*at:25", ":12+ac:18", ":15-ac:13", ":20*gc:10"):
+        col.tally_from_record(
+            cs,
+            [(0, 30)],
+            0,
+            (40,) * 30,
+            "ref1",
+            False,
+            CS_REGEX,
+            "r1",
+            b"A" * 30,
+        )
+    rows = _pileup_rows(col, tmp_path)
+    assert rows == [(p, ".") for p in range(1, 6)] + [(6, "."), (6, "T")] + [
+        (p, ".") for p in range(7, 11)
+    ]
+
+
 # --------------------------------------------------------------------------
 # smoothed_deletion (homopolymer re-attribution)
 # --------------------------------------------------------------------------
