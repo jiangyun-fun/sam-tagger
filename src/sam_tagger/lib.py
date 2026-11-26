@@ -497,12 +497,10 @@ def run_pileup(args: PileupArgs) -> None:
                 str(record.get_tag("cs")),
                 cigar,
                 record.reference_start,
-                record.query_qualities or (),
+                record.query_qualities,
                 ref_name,
                 record.is_reverse,
                 CS_REGEX,
-                record.query_name or "",
-                (record.query_sequence or "").encode(),
             )
 
         logger.info("Processed {} records.", record_count)

@@ -28,7 +28,7 @@ BAM_CDIFF = 8
 CS_REGEX = re.compile(r"([:*+\-])([a-zA-Z0-9]+)")
 
 # Ref-consuming CIGAR ops: M, D, N, =, X
-_REF_OPS = frozenset({BAM_CMATCH, BAM_CDEL, BAM_CREF_SKIP, BAM_CEQUAL, BAM_CDIFF})
+REF_OPS = frozenset({BAM_CMATCH, BAM_CDEL, BAM_CREF_SKIP, BAM_CEQUAL, BAM_CDIFF})
 # Read-consuming CIGAR ops: M, I, S, =, X
 _READ_OPS = frozenset({BAM_CMATCH, BAM_CINS, BAM_CSOFT_CLIP, BAM_CEQUAL, BAM_CDIFF})
 
@@ -343,7 +343,7 @@ def extract_sub_read_for_ref_region(
     sub_qual: list[int] = []
 
     # Calculate reference end from CIGAR
-    record_ref_end = record_pos + sum(length for op, length in cigartuples if op in _REF_OPS)
+    record_ref_end = record_pos + sum(length for op, length in cigartuples if op in REF_OPS)
 
     if current_ref_pos >= target_ref_end or record_ref_end <= target_ref_start:
         return None

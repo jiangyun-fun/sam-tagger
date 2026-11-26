@@ -485,8 +485,6 @@ def test_pileup_snp_no_fasta(tmp_path: Path) -> None:
         "ref1",
         False,
         CS_REGEX,
-        "r1",
-        b"A" * 30,
     )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -514,8 +512,6 @@ def test_pileup_intervals_restrict_positions(tmp_path: Path) -> None:
             ref,
             False,
             CS_REGEX,
-            ref,
-            b"A" * 30,
         )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -539,8 +535,6 @@ def test_pileup_quality_filter(tmp_path: Path) -> None:
         "ref1",
         False,
         CS_REGEX,
-        "r1",
-        b"A" * 30,
     )
     out = tmp_path / "pile.parquet"
     col.write_results(out)
@@ -568,8 +562,6 @@ def test_pileup_quality_index_skips_leading_soft_clip(tmp_path: Path) -> None:
         "ref1",
         False,
         CS_REGEX,
-        "r1",
-        b"A" * 30,
     )
     rows = _pileup_rows(col, tmp_path)
     assert [pos for pos, _ in rows] == list(range(1, 28))
@@ -592,8 +584,6 @@ def test_pileup_quality_index_of_reverse_read(tmp_path: Path) -> None:
         "ref1",
         True,
         CS_REGEX,
-        "r1",
-        b"A" * 30,
     )
     rows = _pileup_rows(col, tmp_path)
     assert [pos for pos, _ in rows] == list(range(2, 28))
@@ -616,8 +606,6 @@ def test_pileup_intervals_skip_substitution_and_indel_outside(tmp_path: Path) ->
             "ref1",
             False,
             CS_REGEX,
-            "r1",
-            b"A" * 30,
         )
     rows = _pileup_rows(col, tmp_path)
     assert rows == [(p, ".") for p in range(1, 6)] + [(6, "."), (6, "T")] + [
