@@ -1,0 +1,67 @@
+---
+title: "Release v0.10.0 to the sibio channel"
+author: "Yun Jiang"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    html-math-method: mathjax
+    grid:
+      margin-width: 400px
+include-in-header:
+  text: |
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+---
+
+## objective
+
+Publish sam-tagger 0.10.0 (pileup quality-index fix, BED fix, dense-array
+port) to the sibio conda channel, following the 0.9.0 release chain: tag
+push, GitHub release, conda-recipes bump and build, sibio deploy,
+client-side verification.
+
+## scope
+
+- sam-tagger: version 0.10.0 in `pyproject.toml`, `pixi.toml` and
+  `src/sam_tagger/__init__.py`; annotated tag `v0.10.0` on the
+  `chore(release)` commit; push `main` and the tag; curated release notes.
+- conda-recipes: `recipes/sam-tagger/meta.yaml` version, sha256 of the
+  sdist, and the new run dependency `numpy`; build with
+  `pixi run build-linux sam-tagger`; audit mirror entry.
+- sibio channel: copy `sam-tagger-0.10.0-py_0.conda` to
+  `/bioproj/data/seaweedfs_0823/sibio-channel/sibio_local/noarch/`, then
+  `pixi run index` and `pixi run upload` from that workspace. The channel
+  moved from MinIO to SeaweedFS on 2026-11-25.
+- Verification: `pixi search`, the `depends` list in `repodata.json`, a
+  fresh-env install, and a pileup run of the installed package against the
+  validated output.
+
+## steps
+
+1. Pre-flight: origin not diverged, gates green, versions consistent, no
+   `v0.10.0` tag or release.
+2. Bump the version and commit.
+3. Create the annotated tag, then push `main` and the tag atomically.
+4. Watch the release run and the CI run on `main`. Install curated notes.
+5. Download the sdist and compute its sha256.
+6. Bump `meta.yaml`, build the package, inspect its run deps and its code.
+7. Copy the package to the channel directory, reindex, compare the remote
+   objects with the local files, then upload.
+8. Verify from a client.
+9. Write the report, the audit entries and the rolling state.
+
+## risks
+
+- The tag push, the GitHub release and the sibio deploy are visible to
+  others and hard to reverse.
+- `pixi run upload` mirrors with `--remove`. The comparison before the
+  upload must show no remote-only object.
+- `numpy` is a new run dependency. A recipe without it gives a package that
+  cannot run `pileup`.
+- The pileup output changes in this version. The release notes must say so.
+
+## verification
+
+To be filled after the release.
